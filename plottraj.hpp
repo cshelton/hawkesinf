@@ -21,9 +21,11 @@ public:
 
 	void plot(const traj &tr) {
 		gplot.reset_plot();
+		gplot << "set object 1 rectangle from screen 0,0 to screen 1,1 fillcolor rgb \"#666666\" behind";
 		int np = tr.events.size();
 		gplot.set_yrange(-0.5,np-0.5);
-		gplot.set_pointsize(0.8).set_style("points");
+		gplot.set_xrange(0,tr.tend);
+		gplot.set_pointsize(1.6).set_style("points");
 		for(int i=0;i<np;i++)
 			if (!tr.events[i].empty())
 				gplot.plot_xy(tr.events[i],std::vector<int>(tr.events[i].size(),i));

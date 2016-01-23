@@ -2,11 +2,12 @@
 #define TRAJ_HPP
 
 #include <vector>
+#include <set>
 
 struct traj {
 	double tend; // t0 always =0
-	// events[i][j] is the time of the jth event for event type i
-	std::vector<std::vector<double>> events;
+	// events[i] are the times of events of type i
+	std::vector<std::set<double>> events;
 
 	// unobs[i][j] is the jth interval that is not observed
 	//  for event type i (.first is the time of start of the interval

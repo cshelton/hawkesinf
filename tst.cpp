@@ -4,7 +4,7 @@
 #include <string>
 #include <random>
 
-using namespace std::string_literals;
+//using namespace std::string_literals;
 
 using namespace std;
 
@@ -30,23 +30,26 @@ int main(int argc, char **argv) {
 */
 
 	hp<multikernel<singleexpkernel>> process
-		(vector<double>{0.5,0,0},
-			vector<vector<double>>{vector<double>{0,1,0},
-				vector<double>{0,0,1},
-				vector<double>{10,0,5}},
+		(vector<double>{0.1,0,0},
+			vector<vector<double>>{vector<double>{0,2,0},
+				vector<double>{0,0,2},
+				vector<double>{2,0,0}},
 			1,2.5);
 
 	std::random_device rd;
 	std::mt19937 rand(rd());
 	
 
-	auto tr = process.sample(3,20,rand);
+	trajplot plot(string("expkernel"));
+	while(true) {
+		auto tr = process.sample(3,20,rand);
 
-	trajplot plot("expkernel"s);
-	plot.plot(tr);
+	//trajplot plot("expkernel"s);
+		plot.plot(tr);
 
-	std::cin.clear();
-	std::cin.ignore(std::cin.rdbuf()->in_avail());
-	std::cin.get();
+		std::cin.clear();
+		std::cin.ignore(std::cin.rdbuf()->in_avail());
+		std::cin.get();
+	}
 }
 

@@ -489,6 +489,10 @@ class Gnuplot
     template<typename X, typename Y>
     Gnuplot& plot_xy(const X& x, const Y& y, const std::string &title = "");
 
+    ///   from data
+    template<typename X, typename Y>
+    Gnuplot& plot_xys(const X& x, const Y& ys, const std::string &title = "");
+
 
     /// plot x,y pairs with dy errorbars: x y dy
     ///   from file
@@ -726,6 +730,7 @@ Gnuplot& Gnuplot::plot_x(const X& x, const std::string &title)
 template<typename X, typename Y>
 Gnuplot& Gnuplot::plot_xy(const X& x, const Y& y, const std::string &title)
 {
+/*
     if (x.size() == 0 || y.size() == 0)
     {
         throw GnuplotException("std::vectors too small");
@@ -737,6 +742,61 @@ Gnuplot& Gnuplot::plot_xy(const X& x, const Y& y, const std::string &title)
         throw GnuplotException("Length of the std::vectors differs");
         return *this;
     }
+*/
+
+    std::ofstream tmp;
+    std::string name = create_tmpfile(tmp);
+    if (name == "")
+        return *this;
+
+    //
+    // write the data to file
+    //
+    /*
+    for (unsigned int i = 0; i < x.size(); i++)
+        tmp << x[i] << " " << y[i] << std::endl;
+*/
+
+	auto xi = x.begin();
+	auto yi = y.begin();
+	if (xi==x.end())
+        throw GnuplotException("std::vectors too small");
+	while(xi!=x.end() && yi != y.end()) {
+		tmp << *xi << ' ' << *yi << std::endl;
+		++xi; ++yi;
+	}
+	if (xi!=x.end() || yi!=y.end())
+        throw GnuplotException("Length of the std::vectors differs");
+
+    tmp.flush();
+    tmp.close();
+
+
+    plotfile_xy(name, 1, 2, title);
+
+    return *this;
+}
+
+template<typename X, typename Y>
+Gnuplot& Gnuplot::plot_xys(const X& x, const Y& y, const std::string &title)
+{
+    if (x.size() == 0)
+    {
+		   throw GnuplotException("std::vectors too small");
+		   return *this;
+	}
+	if (y.size()==0)
+	{
+		   throw GnuplotException("no y values supplied");
+		   return *this;
+	}
+	for(unsigned int j=0;j<y.size();j++) {
+	    if (x.size() != y[j].size())
+	    {
+		   throw GnuplotException("Length of the std::vectors differs");
+		   return *this;
+	    }
+	}
 
 
     std::ofstream tmp;
@@ -747,14 +807,21 @@ Gnuplot& Gnuplot::plot_xy(const X& x, const Y& y, const std::string &title)
     //
     // write the data to file
     //
-    for (unsigned int i = 0; i < x.size(); i++)
-        tmp << x[i] << " " << y[i] << std::endl;
+    for (unsigned int i = 0; i < x.size(); i++) {
+        tmp << x[i];
+		for(unsigned int j=0;j< y.size();j++) {
+			tmp << " " << y[j][i];
+		}
+		tmp<< std::endl;
+	}
 
     tmp.flush();
     tmp.close();
+	std::cout << "wrote " << x.size() << " to " << name << std::endl;
 
 
-    plotfile_xy(name, 1, 2, title);
+	for(unsigned int j=0;j<y.size();j++)
+	    plotfile_xy(name, 1, j+2, title);
 
     return *this;
 }
@@ -943,7 +1010,7 @@ void stringtok (Container &container,
 //
 Gnuplot::~Gnuplot()
 {
-//  remove_tmpfiles();
+  remove_tmpfiles();
 
     // A stream opened by popen() should be closed by pclose()
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__TOS_WIN__)
@@ -961,7 +1028,7 @@ Gnuplot::~Gnuplot()
 //
 Gnuplot& Gnuplot::reset_plot()
 {
-//  remove_tmpfiles();
+  remove_tmpfiles();
 
     nplots = 0;
 
@@ -975,7 +1042,7 @@ Gnuplot& Gnuplot::reset_plot()
 //
 Gnuplot& Gnuplot::reset_all()
 {
-//  remove_tmpfiles();
+  remove_tmpfiles();
 
     nplots = 0;
     cmd("reset");
