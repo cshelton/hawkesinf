@@ -10,6 +10,8 @@
 #include <map>
 #include <cassert>
 
+//#define DEBUG
+
 // A Hawkes process
 // type K (the kernel) must implement the following member functions:
 //    phi(int i, int j, double t)
@@ -235,7 +237,7 @@ struct hp {
 		};
 		struct eventinfo {
 			eventinfo(etype ee, eiterator pp) :
-				e(ee), par(std::move(pp)) {}
+				e(ee), par(std::move(pp)), numrealchildren(0) {}
 			etype e;
 			eiterator par;
 			// perhaps should be a set to make removal faster?
@@ -243,14 +245,49 @@ struct hp {
 			int numrealchildren;
 		};
 
+		static const char *type2str(etype e) {
+			switch(e) {
+				case etype::norm: return "N";
+				case etype::virt: return "V";
+				case etype::evid: return "E";
+				case etype::root: return "R";
+				default: return "?";
+			}
+		}
+
+		void print(std::ostream &os) const {
+			std::map<eventtime,int> num;
+			int i=0;
+			for(auto &e : events) num[e.first] = i++;
+			i = num[ce->first];
+			for(auto &e : events) {
+				os << (num[e.first]==i ? '*' : ' ');
+				os << '[' << num[e.first] << "] " << e.first.t << '/' << e.first.label << " (type=" << type2str(e.second.e) << ", par=" << num[e.second.par->first] << ", #realch=" << e.second.numrealchildren << ", vchildren={";
+				for(int j=0;j<e.second.vchildren.size();j++) {
+					if (j>0) os << ',';
+					os << num[e.second.vchildren[j]->first];
+				}
+				os << "})" << std::endl;
+			}
+			os << "curr:" << std::endl;
+			for(int i=0;i<curr.events.size();i++) {
+				os << "   " << i << ":";
+				for(auto t : curr.events[i]) 
+					os << ' ' << t;
+				os << std::endl;
+			}
+			os << std::endl;
+		}
+
 		std::map<eventtime,eventinfo> events;
 		eiterator ce;
 
 		gibbsstate(traj tr, double kk) : orig(std::move(tr)), kappa(kk) {
+			curr.tend = orig.tend;
 			curr.events.resize(orig.events.size());
 			curr.unobs.resize(orig.unobs.size());
 			auto r = addevent(0,-1,etype::root,events.end());
-			for(int l=0;l<events.size();l++)
+			for(int l=0;l<orig.events.size();l++)
 				for(auto t : orig.events[l])
 					addevent(t,l,etype::evid,r);
 			ce = events.begin();
@@ -281,8 +318,10 @@ struct hp {
 						break;
 					}
 			}
-			if (p->second.e!=etype::virt)
+			if (p->second.e!=etype::virt) {
+				assert(p->second.par->second.numrealchildren>0);
 				p->second.par->second.numrealchildren--;
+			}
 			auto np = events.erase(p);
 			if (ce==p) {
 				ce=np;
@@ -290,11 +329,28 @@ struct hp {
 			}
 		}
 
-		void makeeventvirt(eiterator &p) {
-			assert(p->second.numrealchildren==0);
-			for(auto c : p->second.vchildren) delevent(c,false);
-			p->second.vchildren.clear();
-			p->second.e = etype::virt;
+		void makeeventnorm(const eiterator &e) {
+			auto &vc = e->second.par->second.vchildren;
+			for(int i=0;i<vc.size();i++)
+				if (vc[i]==e) {
+					vc[i] = vc.back();
+					vc.resize(vc.size()-1);
+					break;
+				}
+			e->second.par->second.numrealchildren++;
+			e->second.e=etype::norm;
+			curr.events[e->first.label].emplace(e->first.t);
+		}
+
+		void makeeventvirt(eiterator &e) {
+			assert(e->second.numrealchildren==0);
+			assert(e->second.par->second.numrealchildren>0);
+			for(auto c : e->second.vchildren) delevent(c,false);
+			e->second.par->second.numrealchildren--;
+			e->second.par->second.vchildren.emplace_back(e);
+			e->second.vchildren.clear();
+			e->second.e = etype::virt;
+			curr.events[e->first.label].erase(e->first.t);
 		}
 
 		const traj &trajectory() const { return curr; }
@@ -302,12 +358,12 @@ struct hp {
 		bool advance(bool initinc=true) {
 			if (initinc) {
 				++ce;
-				if (ce==events.end()) ce=events.begin();
+			//	if (ce==events.end()) ce=events.begin();
 			}
-			while(ce->second.e==etype::virt) {
-				++ce;
+			//while(ce->second.e==etype::virt) {
+			//	++ce;
 				if (ce==events.end()) ce=events.begin();
-			}
+			//}
 			return ce==events.begin();
 		}
 	};
@@ -347,9 +403,9 @@ struct hp {
 							unobs.end(),
 							currt,
 							rangecmp);
-					if (j!=unobs.end() && currt<j->second) {
-						currt = j->second;
-						++j;
+					if (j!=unobs.end() && currt<j->first) {
+						currt = j->first;
+						//++j;
 					}
 					while(1) {
 						eventtype e = sampleevent(origi,newi,oldt,currt,
@@ -369,12 +425,53 @@ struct hp {
 					state.addevent(t,newi,etype::virt,p);
 			};
 
-		// resample v events:
+#ifdef DEBUG
+		std::cout << "before step:" << std::endl;
+		state.print(std::cout);
+#endif
+
+		// resample virtualness
+		if (ce->second.e==etype::virt) {
+			double wvirt = state.kappa-1;
+			double wnorm = exp(-kernel.intphi(ce->first.label,0,state.orig.tend-ce->first.t));
+			std::uniform_real_distribution<> samp(0,wvirt+wnorm);
+#ifdef DEBUG
+			std::cout << "isvirt -> (" << wvirt << ',' << wnorm << ')' << std::endl;
+#endif
+			if (samp(rand)>=wvirt)
+				state.makeeventnorm(ce);
+			else return state.advance();
+		} else if (ce->second.e==etype::norm) {
+			if (ce->second.numrealchildren==0) {
+				double wvirt = state.kappa-1;
+				double wnorm = exp(-kernel.intphi(ce->first.label,0,state.orig.tend-ce->first.t));
+				std::uniform_real_distribution<> samp(0,wvirt+wnorm);
+#ifdef DEBUG
+				std::cout << "isnorm -> (" << wvirt << ',' << wnorm << ')' << std::endl;
+#endif
+				if (samp(rand)<wvirt) {
+					state.makeeventvirt(ce);
+					return state.advance();
+				}
+			}
+		}
+		
+#ifdef DEBUG
+		std::cout << "after virt:" << std::endl;
+		state.print(std::cout);
+#endif
+
+		// resample vchildren events:
 		for(auto e : ce->second.vchildren)
 			state.delevent(e,false);
 		state.ce->second.vchildren.clear();
 		for(int l=0;l<state.orig.events.size();l++)
 			sampvirt(ce->first.t,ce->first.label,l,ce);
+
+#ifdef DEBUG
+		std::cout << "after vchildren:" << std::endl;
+		state.print(std::cout);
+#endif
 
 		// resample parent:
 		if (ce->second.e==etype::evid
@@ -388,17 +485,19 @@ struct hp {
 									ce->first.t-e->first.t);
 				if (e->second.e==etype::virt) {
 					wt /= state.kappa-1;
-					wt /= exp(kernel.intphi(e->first.label,e->first.t,
-								state.orig.tend));
+					wt /= exp(kernel.intphi(e->first.label,0,
+							state.orig.tend-e->first.t));
 				}
 				poss.emplace_back(e,wt,false);
 				wtsum += wt;
+				// do I still need this?
 				if (ce->second.par->second.numrealchildren==1
 						&& ce->second.par->second.e==etype::norm
-						&& e!=ce->second.par) {
+						&& e!=ce->second.par
+						&& e->second.par!=ce->second.par) {
 					wt *= state.kappa-1;
-					wt *= exp(kernel.intphi(ce->second.par->first.label,
-							ce->second.par->first.t,state.orig.tend));
+					wt *= exp(kernel.intphi(ce->second.par->first.label,0,
+							state.orig.tend-ce->second.par->first.t));
 					poss.emplace_back(e,wt,true);
 					wtsum += wt;
 				}
@@ -408,16 +507,24 @@ struct hp {
 			for(auto p : poss) {
 				s -= std::get<1>(p);
 				if (s<=0) {
+#ifdef DEBUG
+					std::cout << "pick par=" << std::get<0>(p)->first.t << " (" << std::get<2>(p) << ")" << std::endl;
+#endif
 					ce->second.par->second.numrealchildren--;
 					if (std::get<2>(p))
 						state.makeeventvirt(ce->second.par);
 					ce->second.par = std::get<0>(p);
 					ce->second.par->second.numrealchildren++;
 					if (ce->second.par->second.e==etype::virt)
-						ce->second.par->second.e = etype::norm;
+						state.makeeventnorm(ce->second.par);
+					break;
 				}
 			}
 		}
+#ifdef DEBUG
+		std::cout << "after par:" << std::endl;
+		state.print(std::cout);
+#endif
 		return state.advance();
 	}
 };

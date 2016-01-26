@@ -50,12 +50,16 @@ int main(int argc, char **argv) {
 	std::mt19937_64 rand(rd());
 	
 	tr.tend = 5;
+	tr.events.emplace_back();
+	tr.events.emplace_back();
 	tr.unobs.emplace_back();
 	tr.unobs.emplace_back();
+/*
 	tr.unobs[0].emplace_back(1,3);
-	tr.events.emplace_back();
-	tr.events.emplace_back();
 	tr.events[1].emplace(4);
+*/
+	tr.unobs[0].emplace_back(1,5);
+	tr.unobs[1].emplace_back(1,5);
 
 
 	int n = 1000000;
@@ -76,11 +80,18 @@ int main(int argc, char **argv) {
 	}
 	iota(xs.begin(),xs.end(),1);
 	vector<double> ssx(npts,0),ssy(npts,0);
+
+	const double kappa = 2.0;
+
+	const int burnin = 500;
 	
 	for(int j=0;j<m;j++) {
 		vector<double> s(nval,0.0);
 		vector<double> c(nval,0.0);
-		auto state = process.initgibbs(tr,2.0,rand);
+		auto state = process.initgibbs(tr,kappa,rand);
+		for(int i=0;i<burnin;i++)
+			while(!process.gibbsstep(state,rand))
+				;
 		for(int i=0;i<n;i++) {
 			while(!process.gibbsstep(state,rand))
 				;
@@ -93,8 +104,9 @@ int main(int argc, char **argv) {
 
 			for(int k=0;k<nval;k++) {
 				s[k] += c[k];
-				ys[k][i]+=s[k]/(i+1);
-				y2s[k][i]+=(s[k]*s[k])/(i+1);
+				double v = s[k]/(i+1);
+				ys[k][i]+=v;
+				y2s[k][i]+=v*v;
 			}
 		}
 		cout << j << '/' << m << ":";

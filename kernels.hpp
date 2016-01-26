@@ -97,6 +97,7 @@ struct singlepowerkernel {
 template<typename SK>
 struct multikernel {
 	std::vector<double> baserates;
+	double baseratesum;
 	// W[i][j] is the multiplier for events from i generating new events in j
 	std::vector<std::vector<double>> W;
 	std::vector<double> Wsum;
@@ -107,35 +108,39 @@ struct multikernel {
 			std::vector<std::vector<double>> ws,
 			T &&...skparams) 
 		: baserates(mus), W(ws), skernel(std::forward<T>(skparams)...) {
+		baseratesum = 0;
 		for(int i=0;i<W.size();i++) {
 			double s = 0;
 			for(auto &x : W[i]) s += x;
 			Wsum.emplace_back(s);
+			baseratesum += baserates[i];
 		}
 	}
 
 	constexpr double phi(int i, int j, double t) const {
-		return W[i][j]*skernel.phi(t);
+		return i<0 ? baserates[j] : W[i][j]*skernel.phi(t);
 	}
 	// same as above, but summed over all j
 	constexpr double phi(int i, double t) const {
-		return Wsum[i]*skernel.phi(t);
+		return i<0 ? baseratesum : Wsum[i]*skernel.phi(t);
 	}
 
 	constexpr double intphi(int i, int j, double t0, double t1) const {
-		return skernel.intphi(t0,t1)*W[i][j];
+		return i<0 ? baserates[j]*(t1-t0) : skernel.intphi(t0,t1)*W[i][j];
 	}
 	// same as above, but summed over all j
 	constexpr double intphi(int i, double t0, double t1) const {
-		return skernel.intphi(t0,t1)*Wsum[i];
+		return i<0 ? baseratesum*(t1-t0) : skernel.intphi(t0,t1)*Wsum[i];
 	}
 
 	constexpr double invintphi(int i, int j, double s, double t0) const {
+		if (i<0) return t0+s/baserates[j];
 		if (W[i][j]<=0.0) return std::numeric_limits<double>::infinity();
 		return skernel.invintphi(s/W[i][j],t0);
 	}
 
 	constexpr double invintphi(int i, double s, double t0) const {
+		if (i<0) return t0+s/baseratesum;
 		if (Wsum[i]<=0.0) return std::numeric_limits<double>::infinity();
 		return skernel.invintphi(s/Wsum[i],t0);
 	}

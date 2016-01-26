@@ -52,10 +52,14 @@ int main(int argc, char **argv) {
 	tr.tend = 5;
 	tr.unobs.emplace_back();
 	tr.unobs.emplace_back();
+	tr.events.emplace_back();
+	tr.events.emplace_back();
+/*
 	tr.unobs[0].emplace_back(1,3);
-	tr.events.emplace_back();
-	tr.events.emplace_back();
 	tr.events[1].emplace(4);
+*/
+	tr.unobs[0].emplace_back(1,5);
+	tr.unobs[1].emplace_back(1,5);
 
 
 	int n = 1000000;
@@ -113,7 +117,7 @@ int main(int argc, char **argv) {
 			}
 		}
 		cout << j << '/' << m << ":";
-		for(int k=0;k<nval;k++) cout << ' ' << s[k]/n;
+		for(int k=0;k<nval;k++) cout << ' ' << s[k]/w;
 		cout << endl;
 		if (j%10==0) {
 		//{
