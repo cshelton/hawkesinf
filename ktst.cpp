@@ -40,10 +40,19 @@ pair<vector<double>,vector<vector<double>>> subsamp(const vector<double> x,
 
 int main(int argc, char **argv) {
 	traj tr;
+/*
 	hp<multikernel<singleexpkernel>> process
 		(vector<double>{0.1,0.0001},
 			vector<vector<double>>{vector<double>{1/4.0,2/4.0},
 				vector<double>{1/4.0,1/4.0}},
+			1,1);
+*/
+	hp<multikernel<singleexpkernel>> process
+		(vector<double>{0.1,0.0001},
+			vector<vector<double>>{vector<double>{1/4.0,0/4.0},
+				vector<double>{0/4.0,1/4.0}},
+			//vector<vector<double>>{vector<double>{1/4.0,0/4.0},
+			//	vector<double>{0/4.0,1/4.0}},
 			1,1);
 
 	std::random_device rd;
@@ -98,9 +107,15 @@ int main(int argc, char **argv) {
 			auto samp = state.trajectory();
 			c[0] = 0;
 			c[1] = 0;
+/*
 			for(auto t : samp.events[0])
 				if (t>=1 && t<2) c[0]++;
 				else if (t>=2 && t<3) c[1]++;
+*/
+			for(auto t : samp.events[0])
+				if (t>=1 && t<5) c[0]++;
+			for(auto t : samp.events[1])
+				if (t>=1 && t<5) c[1]++;
 
 			for(int k=0;k<nval;k++) {
 				s[k] += c[k];
