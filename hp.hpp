@@ -345,8 +345,9 @@ struct hp {
 		void makeeventvirt(eiterator &e) {
 			if (e->second.numrealchildren>0) {
 				//slow but just to see if this works...
-				for(auto ee = e;ee!=events.end();++ee)
-					if (ee->second.par==e && ee->second.e==etype::virt)
+				//print(std::cout);
+				for(eiterator ee = e;ee!=events.end();++ee)
+					if (ee->second.par==e && ee->second.e==etype::norm)
 						makeeventvirt(ee);
 			}
 			assert(e->second.numrealchildren==0);
