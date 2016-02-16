@@ -447,7 +447,7 @@ struct hp {
 				return ret;
 			};
 
-		auto resampvchildren = [&state,&sampvirt,&rand,this](eiterator ev, bool alwaysaccept=false) {
+		auto resampvchildren1 = [&state,&sampvirt,&rand,this](eiterator ev) {
 /*
 			// resample vchildren events:
 			for(auto e : ev->second.vchildren)
@@ -457,22 +457,39 @@ struct hp {
 				sampvirt(ev->first.t,ev->first.label,l,ev);
 */
 			std::vector<std::vector<double>> vetimes (state.orig.events.size());
-			int m=0;
-			for(int l=0;l<state.orig.events.size();l++) {
+			for(int l=0;l<state.orig.events.size();l++)
 				vetimes[l] = sampvirt(ev->first.t,ev->first.label,l,ev);
-				m += vetimes[l].size();
-			}
-			std::uniform_real_distribution<> samp(0,1);
+			return vetimes;
+			};
+
+		auto resampvchildrenrate = [&state](eiterator ev, const std::vector<std::vector<double>> &vetimes) {
+			int m=0;
+			for(auto &ve : vetimes) m+=ve.size();
 			int n = state.events.size(); //*2;// - state.nimmobile;
 			int deln = m-ev->second.vchildren.size();
-			if (alwaysaccept || deln<0 || samp(rand)<=n/(double)(n+deln)) {
-				for(auto e : ev->second.vchildren)
-					state.delevent(e,false);
-				ev->second.vchildren.clear();
-				for(int l=0;l<state.orig.events.size();l++)
-					for(auto t : vetimes[l])
-						state.addevent(t,l,etype::virt,ev);
-			}
+			return n/(double)(n+deln);
+			};
+
+		auto unsampvchildrenrate = [&state](eiterator ev) {
+			int n = state.events.size();
+			int deln = ev->second.vchildren.size();
+			return n/(double)(n+deln);
+			};
+
+		auto resampvchildren2 = [&state,this](eiterator ev, const std::vector<std::vector<double>> &vetimes) {
+			for(auto e : ev->second.vchildren)
+				state.delevent(e,false);
+			ev->second.vchildren.clear();
+			for(int l=0;l<state.orig.events.size();l++)
+				for(auto t : vetimes[l])
+					state.addevent(t,l,etype::virt,ev);
+			};
+
+		auto resampvchildren = [this,&resampvchildren1,&resampvchildrenrate,&resampvchildren2,&rand](eiterator ev) {
+			auto vetimes = resampvchildren1(ev);
+			double accpr = resampvchildrenrate(ev,vetimes);
+			std::uniform_real_distribution<> samp(0.0,1.0);
+			if (samp(rand)<=accpr) resampvchildren2(ev,vetimes);
 			};
 
 #ifdef DEBUG
@@ -486,27 +503,27 @@ struct hp {
 	
 		// resample virtualness
 		if (ce->second.e==etype::virt) {
-			double wvirt = (state.kappa-1)*ce->second.par->second.vchildren.size();
-			double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
-			wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
-					ce->first.t-ce->second.par->first.t);
+			auto vetimes = resampvchildren1(ce);
+			double wvirt = (state.kappa-1);// *ce->second.par->second.vchildren.size();
+			double wnorm = resampvchildrenrate(ce,vetimes)*exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
+			//wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
+			//		ce->first.t-ce->second.par->first.t);
 			std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 #ifdef DEBUG
 			std::cout << "isvirt -> (" << wvirt << ',' << wnorm << ')' << std::endl;
 #endif
 			if (samp(rand)>=wvirt) {
 				state.makeeventnorm(ce);
-				resampvchildren(ce,true);
-				// no need to resampvchildren (its about to happen)
+				resampvchildren2(ce,vetimes);
 			} else return state.advance(rand);
 		} else if (ce->second.e==etype::norm) {
 			if (ce->second.numrealchildren==0) {
 			//if (1) {
-				double wvirt = (state.kappa-1)*(ce->second.par->second.vchildren.size()+1);
+				double wvirt = unsampvchildrenrate(ce)*(state.kappa-1);//*(ce->second.par->second.vchildren.size()+1);
 				//wvirt *= ce->second.par->second.numrealchildren;
 				double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
-				wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
-					ce->first.t-ce->second.par->first.t);
+				//wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
+				//	ce->first.t-ce->second.par->first.t);
 				std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 #ifdef DEBUG
 				std::cout << "isnorm -> (" << wvirt << ',' << wnorm << ')' << std::endl;
