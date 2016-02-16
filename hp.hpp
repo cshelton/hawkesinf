@@ -281,19 +281,24 @@ struct hp {
 
 		std::map<eventtime,eventinfo> events;
 		eiterator ce;
+		int nimmobile;
 
 		gibbsstate(traj tr, double kk) : orig(std::move(tr)), kappa(kk) {
 			curr.tend = orig.tend;
 			curr.events.resize(orig.events.size());
 			curr.unobs.resize(orig.unobs.size());
+			nimmobile = 1;
 			auto r = addevent(0,-1,etype::root,events.end());
-			for(int l=0;l<orig.events.size();l++)
+			for(int l=0;l<orig.events.size();l++) {
+				nimmobile += orig.events[l].size();
 				for(auto t : orig.events[l])
 					addevent(t,l,etype::evid,r);
+			}
 			ce = events.begin();
 		}
 
 		eiterator addevent(double t, int l, etype e, const eiterator &p) {
+			assert(p==events.end() || t>p->first.t);
 			auto place = events.emplace(eventtime{t,l},eventinfo{e,p});
 			if (e==etype::virt)
 				p->second.vchildren.emplace_back(place.first);
@@ -325,7 +330,8 @@ struct hp {
 			auto np = events.erase(p);
 			if (ce==p) {
 				ce=np;
-				advance(false);
+				if (ce==events.end()) ce = events.begin();
+				//advance(???,false);
 			}
 		}
 
@@ -343,9 +349,8 @@ struct hp {
 		}
 
 		void makeeventvirt(eiterator &e) {
-			if (e->second.numrealchildren>0) {
+			if (e->second.numrealchildren) {
 				//slow but just to see if this works...
-				//print(std::cout);
 				for(eiterator ee = e;ee!=events.end();++ee)
 					if (ee->second.par==e && ee->second.e==etype::norm)
 						makeeventvirt(ee);
@@ -362,7 +367,8 @@ struct hp {
 
 		const traj &trajectory() const { return curr; }
 
-		bool advance(bool initinc=true) {
+		template<typename R>
+		bool advance(R &rand, bool initinc=true) {
 			if (initinc) {
 				++ce;
 			//	if (ce==events.end()) ce=events.begin();
@@ -371,6 +377,12 @@ struct hp {
 			//	++ce;
 				if (ce==events.end()) ce=events.begin();
 			//}
+			// too slow!!
+			std::uniform_real_distribution<> samp(0,events.size());
+			int ni = (int)std::floor(samp(rand));
+			//std::cout << ni << '/' << events.size() << std::endl;
+			ce = events.begin();
+			std::advance(ce,ni);
 			return ce==events.begin();
 		}
 	};
@@ -428,17 +440,39 @@ struct hp {
 			[&state,&rand,&sampvirtevent,this](double t0,int origi, int newi,
 						const eiterator &p) {
 				double t = t0;
+				std::vector<double> ret;
 				while((t=sampvirtevent(origi,newi,t0,t))<state.orig.tend)
-					state.addevent(t,newi,etype::virt,p);
+					ret.push_back(t);
+					//state.addevent(t,newi,etype::virt,p);
+				return ret;
 			};
 
-		auto resampvchildren = [&state,&sampvirt,this](eiterator ev) {
+		auto resampvchildren = [&state,&sampvirt,&rand,this](eiterator ev, bool alwaysaccept=false) {
+/*
 			// resample vchildren events:
 			for(auto e : ev->second.vchildren)
 				state.delevent(e,false);
 			ev->second.vchildren.clear();
 			for(int l=0;l<state.orig.events.size();l++)
 				sampvirt(ev->first.t,ev->first.label,l,ev);
+*/
+			std::vector<std::vector<double>> vetimes (state.orig.events.size());
+			int m=0;
+			for(int l=0;l<state.orig.events.size();l++) {
+				vetimes[l] = sampvirt(ev->first.t,ev->first.label,l,ev);
+				m += vetimes[l].size();
+			}
+			std::uniform_real_distribution<> samp(0,1);
+			int n = state.events.size(); //*2;// - state.nimmobile;
+			int deln = m-ev->second.vchildren.size();
+			if (alwaysaccept || deln<0 || samp(rand)<=n/(double)(n+deln)) {
+				for(auto e : ev->second.vchildren)
+					state.delevent(e,false);
+				ev->second.vchildren.clear();
+				for(int l=0;l<state.orig.events.size();l++)
+					for(auto t : vetimes[l])
+						state.addevent(t,l,etype::virt,ev);
+			}
 			};
 
 #ifdef DEBUG
@@ -447,30 +481,39 @@ struct hp {
 		state.print(std::cout);
 #endif
 
+		std::uniform_real_distribution<> sampunif(0,1);
+		if (sampunif(rand)<0.5) {
+	
 		// resample virtualness
 		if (ce->second.e==etype::virt) {
-			double wvirt = state.kappa-1;
-			double wnorm = 1;//exp(-kernel.intphi(ce->first.label,0,state.orig.tend-ce->first.t));
+			double wvirt = (state.kappa-1)*ce->second.par->second.vchildren.size();
+			double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
+			wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
+					ce->first.t-ce->second.par->first.t);
 			std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 #ifdef DEBUG
 			std::cout << "isvirt -> (" << wvirt << ',' << wnorm << ')' << std::endl;
 #endif
-			if (samp(rand)>=wvirt)
+			if (samp(rand)>=wvirt) {
 				state.makeeventnorm(ce);
+				resampvchildren(ce,true);
 				// no need to resampvchildren (its about to happen)
-			else return state.advance();
+			} else return state.advance(rand);
 		} else if (ce->second.e==etype::norm) {
-			//if (ce->second.numrealchildren==0) {
-			if (1) {
-				double wvirt = state.kappa-1;
-				double wnorm = 1;//exp(-kernel.intphi(ce->first.label,0,state.orig.tend-ce->first.t));
+			if (ce->second.numrealchildren==0) {
+			//if (1) {
+				double wvirt = (state.kappa-1)*(ce->second.par->second.vchildren.size()+1);
+				//wvirt *= ce->second.par->second.numrealchildren;
+				double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
+				wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
+					ce->first.t-ce->second.par->first.t);
 				std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 #ifdef DEBUG
 				std::cout << "isnorm -> (" << wvirt << ',' << wnorm << ')' << std::endl;
 #endif
 				if (samp(rand)<wvirt) {
 					state.makeeventvirt(ce);
-					return state.advance();
+					return state.advance(rand);
 				}
 			}
 		}
@@ -479,13 +522,19 @@ struct hp {
 		std::cout << "after virt:" << std::endl;
 		state.print(std::cout);
 #endif
+		} else if (ce->second.e!=etype::virt) {
+#ifdef DEBUG
+		std::cout << "before vchildren:" << std::endl;
+		state.print(std::cout);
+#endif
 
 		resampvchildren(ce);
-
 #ifdef DEBUG
 		std::cout << "after vchildren:" << std::endl;
 		state.print(std::cout);
 #endif
+}
+
 
 #ifdef RESAMPPARENT
 		// resample parent:
@@ -547,7 +596,7 @@ struct hp {
 		state.print(std::cout);
 #endif
 #endif
-		return state.advance();
+		return state.advance(rand);
 	}
 };
 

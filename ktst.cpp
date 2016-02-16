@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
 
 	const double kappa = 2.0;
 
-	const int burnin = 500;
+	const int burnin = n/2;
 	
 	for(int j=0;j<m;j++) {
 		vector<double> s(nval,0.0);
@@ -102,8 +102,9 @@ int main(int argc, char **argv) {
 			while(!process.gibbsstep(state,rand))
 				;
 		for(int i=0;i<n;i++) {
-			while(!process.gibbsstep(state,rand))
-				;
+			//while(!process.gibbsstep(state,rand))
+			//	;
+			process.gibbsstep(state,rand);
 			auto samp = state.trajectory();
 			c[0] = 0;
 			c[1] = 0;

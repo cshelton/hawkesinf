@@ -49,7 +49,9 @@ int main(int argc, char **argv) {
 */
 	hp<multikernel<singleexpkernel>> process
 		(vector<double>{0.1,0.0001},
-			vector<vector<double>>{vector<double>{3/4.0,0/4.0},
+			//vector<vector<double>>{vector<double>{3/4.0,0/4.0},
+			//	vector<double>{0/4.0,1/4.0}},
+			vector<vector<double>>{vector<double>{1/4.0,0/4.0},
 				vector<double>{0/4.0,1/4.0}},
 			1,1);
 
