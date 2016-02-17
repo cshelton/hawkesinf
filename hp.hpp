@@ -473,7 +473,7 @@ struct hp {
 		auto unsampvchildrenrate = [&state](eiterator ev) {
 			int n = state.events.size();
 			int deln = ev->second.vchildren.size();
-			return n/(double)(n+deln);
+			return n/(double)(n-deln);
 			};
 
 		auto resampvchildren2 = [&state,this](eiterator ev, const std::vector<std::vector<double>> &vetimes) {
@@ -504,7 +504,9 @@ struct hp {
 		// resample virtualness
 		if (ce->second.e==etype::virt) {
 			auto vetimes = resampvchildren1(ce);
-			double wvirt = (state.kappa-1);// *ce->second.par->second.vchildren.size();
+			//double wvirt = (state.kappa-1);
+			//double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
+			double wvirt = (state.kappa-1);//*ce->second.par->second.vchildren.size();
 			double wnorm = resampvchildrenrate(ce,vetimes)*exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
 			//wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
 			//		ce->first.t-ce->second.par->first.t);
@@ -515,13 +517,16 @@ struct hp {
 			if (samp(rand)>=wvirt) {
 				state.makeeventnorm(ce);
 				resampvchildren2(ce,vetimes);
+				//resampvchildren2(ce,resampvchildren1(ce));
+				//resampvchildren(ce);
 			} else return state.advance(rand);
 		} else if (ce->second.e==etype::norm) {
 			if (ce->second.numrealchildren==0) {
 			//if (1) {
+				//double wvirt = (state.kappa-1);//*(ce->second.par->second.vchildren.size()+1);
+				double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
 				double wvirt = unsampvchildrenrate(ce)*(state.kappa-1);//*(ce->second.par->second.vchildren.size()+1);
 				//wvirt *= ce->second.par->second.numrealchildren;
-				double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
 				//wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
 				//	ce->first.t-ce->second.par->first.t);
 				std::uniform_real_distribution<> samp(0,wvirt+wnorm);
