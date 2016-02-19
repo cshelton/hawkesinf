@@ -40,20 +40,20 @@ pair<vector<double>,vector<vector<double>>> subsamp(const vector<double> x,
 
 int main(int argc, char **argv) {
 	traj tr;
-/*
 	hp<multikernel<singleexpkernel>> process
 		(vector<double>{0.1,0.0001},
 			vector<vector<double>>{vector<double>{1/4.0,2/4.0},
 				vector<double>{1/4.0,1/4.0}},
 			1,1);
-*/
+/*
 	hp<multikernel<singleexpkernel>> process
 		(vector<double>{0.1,0.0001},
-			//vector<vector<double>>{vector<double>{3/4.0,0/4.0},
-			//	vector<double>{0/4.0,1/4.0}},
-			vector<vector<double>>{vector<double>{1/4.0,0/4.0},
+			vector<vector<double>>{vector<double>{3/4.0,0/4.0},
 				vector<double>{0/4.0,1/4.0}},
+			//vector<vector<double>>{vector<double>{1/4.0,0/4.0},
+			//	vector<double>{0/4.0,1/4.0}},
 			1,1);
+*/
 
 	std::random_device rd;
 	std::mt19937_64 rand(rd());
@@ -63,12 +63,12 @@ int main(int argc, char **argv) {
 	tr.unobs.emplace_back();
 	tr.events.emplace_back();
 	tr.events.emplace_back();
-/*
 	tr.unobs[0].emplace_back(1,3);
 	tr.events[1].emplace(4);
-*/
+/*
 	tr.unobs[0].emplace_back(1,5);
 	tr.unobs[1].emplace_back(1,5);
+*/
 
 
 	int n = 1000000;
@@ -131,12 +131,15 @@ int main(int argc, char **argv) {
 				y2s[k][i]+=v*v;
 			}
 		}
+		int nm = j+1;
 		cout << j << '/' << m << ":";
-		for(int k=0;k<nval;k++) cout << ' ' << s[k]/w;
+		for(int k=0;k<nval;k++) {
+			double val = ys[k].back()/nm;
+			cout << ' ' << s[k]/w << " (" << val << ")";
+		}
 		cout << endl;
 		if (j%10==0) {
 		//{
-			int nm = j+1;
 			for(int k=0;k<nval;k++) {
 				double val = ys[k].back()/nm;
 				plots[k].reset_plot();
@@ -147,9 +150,9 @@ int main(int argc, char **argv) {
 					ssy[ii] = (y2s[k][li] - 2*val*ys[k][li])/nm + val*val;
 					++ii;
 				}
-				plots[k].plot_xy(ssx,ssy);
 				plots[k].set_xlogscale(10);
 				plots[k].set_ylogscale(10);
+				plots[k].plot_xy(ssx,ssy);
 				pause(1);
 			}
 		}

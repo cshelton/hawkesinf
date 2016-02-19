@@ -817,7 +817,7 @@ Gnuplot& Gnuplot::plot_xys(const X& x, const Y& y, const std::string &title)
 
     tmp.flush();
     tmp.close();
-	std::cout << "wrote " << x.size() << " to " << name << std::endl;
+	//std::cout << "wrote " << x.size() << " to " << name << std::endl;
 
 
 	for(unsigned int j=0;j<y.size();j++)

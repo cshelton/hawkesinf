@@ -11,6 +11,9 @@
 #include <cassert>
 
 //#define DEBUG
+#define RANDADV
+#define RESAMPPARENT
+//#define PARENTCHANGEV
 
 // A Hawkes process
 // type K (the kernel) must implement the following member functions:
@@ -236,13 +239,24 @@ struct hp {
 			}
 		};
 		struct eventinfo {
-			eventinfo(etype ee, eiterator pp) :
-				e(ee), par(std::move(pp)), numrealchildren(0) {}
+			eventinfo(etype ee, eiterator pp
+#ifdef RANDADV
+				, int ii
+#endif
+				) :
+				e(ee), par(std::move(pp)), numrealchildren(0)
+#ifdef RANDADV
+				, i(ii)
+#endif
+				{}
 			etype e;
 			eiterator par;
 			// perhaps should be a set to make removal faster?
 			std::vector<eiterator> vchildren;
 			int numrealchildren;
+#ifdef RANDADV
+			int i;
+#endif
 		};
 
 		static const char *type2str(etype e) {
@@ -280,6 +294,9 @@ struct hp {
 		}
 
 		std::map<eventtime,eventinfo> events;
+#ifdef RANDADV
+		std::vector<eiterator> elist;
+#endif
 		eiterator ce;
 		int nimmobile;
 
@@ -299,7 +316,12 @@ struct hp {
 
 		eiterator addevent(double t, int l, etype e, const eiterator &p) {
 			assert(p==events.end() || t>p->first.t);
+#ifdef RANDADV
+			auto place = events.emplace(eventtime{t,l},eventinfo{e,p,(int)(elist.size())});
+			elist.push_back(place.first);
+#else
 			auto place = events.emplace(eventtime{t,l},eventinfo{e,p});
+#endif
 			if (e==etype::virt)
 				p->second.vchildren.emplace_back(place.first);
 			else {
@@ -323,6 +345,13 @@ struct hp {
 						break;
 					}
 			}
+#ifdef RANDADV
+			if (p->second.i < elist.size()-1) {
+				elist.back()->second.i = p->second.i;
+				elist[p->second.i] = elist.back();
+			}
+			elist.resize(elist.size()-1);
+#endif
 			if (p->second.e!=etype::virt) {
 				assert(p->second.par->second.numrealchildren>0);
 				p->second.par->second.numrealchildren--;
@@ -333,6 +362,7 @@ struct hp {
 				if (ce==events.end()) ce = events.begin();
 				//advance(???,false);
 			}
+			
 		}
 
 		void makeeventnorm(const eiterator &e) {
@@ -349,12 +379,14 @@ struct hp {
 		}
 
 		void makeeventvirt(eiterator &e) {
+/*
 			if (e->second.numrealchildren) {
 				//slow but just to see if this works...
 				for(eiterator ee = e;ee!=events.end();++ee)
 					if (ee->second.par==e && ee->second.e==etype::norm)
 						makeeventvirt(ee);
 			}
+*/
 			assert(e->second.numrealchildren==0);
 			assert(e->second.par->second.numrealchildren>0);
 			for(auto c : e->second.vchildren) delevent(c,false);
@@ -369,6 +401,17 @@ struct hp {
 
 		template<typename R>
 		bool advance(R &rand, bool initinc=true) {
+#ifdef RANDADV
+/*
+			// too slow!!
+			std::uniform_real_distribution<> samp(0,events.size());
+			int ni = (int)std::floor(samp(rand));
+			ce = events.begin();
+			std::advance(ce,ni);
+*/
+			std::uniform_int_distribution<> samp(0,elist.size()-1);
+			ce = elist[samp(rand)];
+#else
 			if (initinc) {
 				++ce;
 			//	if (ce==events.end()) ce=events.begin();
@@ -377,12 +420,8 @@ struct hp {
 			//	++ce;
 				if (ce==events.end()) ce=events.begin();
 			//}
-			// too slow!!
-			std::uniform_real_distribution<> samp(0,events.size());
-			int ni = (int)std::floor(samp(rand));
 			//std::cout << ni << '/' << events.size() << std::endl;
-			ce = events.begin();
-			std::advance(ce,ni);
+#endif
 			return ce==events.begin();
 		}
 	};
@@ -499,17 +538,12 @@ struct hp {
 #endif
 
 		std::uniform_real_distribution<> sampunif(0,1);
-		if (sampunif(rand)<0.5) {
 	
 		// resample virtualness
 		if (ce->second.e==etype::virt) {
 			auto vetimes = resampvchildren1(ce);
-			//double wvirt = (state.kappa-1);
-			//double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
-			double wvirt = (state.kappa-1);//*ce->second.par->second.vchildren.size();
+			double wvirt = (state.kappa-1);
 			double wnorm = resampvchildrenrate(ce,vetimes)*exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
-			//wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
-			//		ce->first.t-ce->second.par->first.t);
 			std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 #ifdef DEBUG
 			std::cout << "isvirt -> (" << wvirt << ',' << wnorm << ')' << std::endl;
@@ -517,18 +551,12 @@ struct hp {
 			if (samp(rand)>=wvirt) {
 				state.makeeventnorm(ce);
 				resampvchildren2(ce,vetimes);
-				//resampvchildren2(ce,resampvchildren1(ce));
-				//resampvchildren(ce);
-			} else return state.advance(rand);
+			} else
+				return state.advance(rand);
 		} else if (ce->second.e==etype::norm) {
 			if (ce->second.numrealchildren==0) {
-			//if (1) {
-				//double wvirt = (state.kappa-1);//*(ce->second.par->second.vchildren.size()+1);
 				double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
-				double wvirt = unsampvchildrenrate(ce)*(state.kappa-1);//*(ce->second.par->second.vchildren.size()+1);
-				//wvirt *= ce->second.par->second.numrealchildren;
-				//wnorm *= kernel.phi(ce->second.par->first.label,ce->first.label,
-				//	ce->first.t-ce->second.par->first.t);
+				double wvirt = unsampvchildrenrate(ce)*(state.kappa-1);
 				std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 #ifdef DEBUG
 				std::cout << "isnorm -> (" << wvirt << ',' << wnorm << ')' << std::endl;
@@ -544,7 +572,6 @@ struct hp {
 		std::cout << "after virt:" << std::endl;
 		state.print(std::cout);
 #endif
-		} else if (ce->second.e!=etype::virt) {
 #ifdef DEBUG
 		std::cout << "before vchildren:" << std::endl;
 		state.print(std::cout);
@@ -555,7 +582,6 @@ struct hp {
 		std::cout << "after vchildren:" << std::endl;
 		state.print(std::cout);
 #endif
-}
 
 
 #ifdef RESAMPPARENT
@@ -567,30 +593,34 @@ struct hp {
 			double wtsum = 0.0;
 			for(auto e=state.events.begin();e!=state.events.end()
 						&& e->first.t<ce->first.t;++e) {
+#ifndef PARENTCHANGEV
 				if (e->second.e==etype::virt) continue;
+#endif
 				
 				double wt = kernel.phi(e->first.label,ce->first.label,
 									ce->first.t-e->first.t);
+#ifdef PARENTCHANGEV
 				if (e->second.e==etype::virt) {
-					wt /= state.kappa-1;
+					wt /= (state.kappa-1);//*unsampvchildrenrate(e);
 					wt *= exp(-kernel.intphi(e->first.label,0,
 							state.orig.tend-e->first.t));
 				}
+#endif
 				poss.emplace_back(e,wt,false);
 				wtsum += wt;
+#ifdef PARENTCHANGEV
 				// do I still need this?
-				/*
 				if (ce->second.par->second.numrealchildren==1
 						&& ce->second.par->second.e==etype::norm
 						&& e!=ce->second.par
 						&& e->second.par!=ce->second.par) {
-					wt *= state.kappa-1;
+					wt *= (state.kappa-1)*unsampvchildrenrate(e);
 					wt /= exp(-kernel.intphi(ce->second.par->first.label,0,
 							state.orig.tend-ce->second.par->first.t));
 					poss.emplace_back(e,wt,true);
 					wtsum += wt;
 				}
-*/
+#endif
 			}
 			std::uniform_real_distribution<> samp(0,wtsum);
 			double s = samp(rand);
