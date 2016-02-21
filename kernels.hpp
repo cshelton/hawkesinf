@@ -62,12 +62,14 @@ struct singlepowerkernel {
 	constexpr double intphi(double t0, double t1) const {
 		return alpha*(std::pow(t1+gamma,beta+1)-std::pow(t0+gamma,beta+1))/(beta+1);
 	}
-	constexpr double invintphi(double s, double t0) const {
+	//constexpr double invintphi(double s, double t0) const {
+	double invintphi(double s, double t0) const {
 		// it seems like this should be doable in a more
 		// stable fashion...
-		return std::pow((beta+1)*s/alpha + std::pow(gamma+t0,beta+1),
+		double ret = std::pow((beta+1)*s/alpha + std::pow(gamma+t0,beta+1),
 					1.0/(beta+1))
 				-gamma;
+		return ret>t0 ? ret : std::numeric_limits<double>::infinity();
 	}
 
 	struct state {
@@ -78,7 +80,8 @@ struct singlepowerkernel {
 	state basestate(double t) const { return {t,std::vector<double>{}}; }
 	double advstate(double t, state &s, bool uselog=true) const {
 		double ret = 0.0;
-		for(auto &tt : s.ts) ret -= std::log(intphi(s.t,t));
+		//for(auto &tt : s.ts) ret -= std::log(intphi(s.t-tt,t-tt));
+		for(auto &tt : s.ts) ret -= intphi(s.t-tt,t-tt);
 		if (!uselog) ret = std::exp(ret);
 		s.t = t;
 		return ret;

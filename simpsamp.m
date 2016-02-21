@@ -42,34 +42,42 @@ while(length(lastts)>0)
 	lastts = nextts;
 end;
 
-%ts = [1.63708 2.94468];
-
-logw = -(T-(t1-t0))*mu(1)-T*mu(2);
+logw = -(T-(t1-t0))*mu(1)-T*mu(2)
+endlogw = -Kbar(M,2,2,etime,etime,T)-Kbar(M,2,1,etime,etime,T)
+logw = logw+endlogw;
 ew = mu(2);
 for t=ts,
 	logw = logw-Kbar(M,1,1,t,t1,T)-Kbar(M,1,2,t,t,T);
 	ew = ew+K(M,1,2,t,etime);
 end;
+log(ew)
 logw = logw+log(ew);
 
 function k = K(M,i,j,s,t)
 	if (s>t)
 		k = 0
 	else
-		k = M(i,j)*exp(-(t-s));
+		% k = M(i,j)*exp(-(t-s));
+		k = M(i,j)/((t-s+1)*(t-s+1));
 	end;
 
 function p = Kbar(M,i,j,s0,s,t)
 	if (s>t)
 		p = 0;
 	else
-		p = M(i,j)*(exp(s0-s)-exp(s0-t));
+		%p = M(i,j)*(exp(s0-s)-exp(s0-t));
+		(1/(s-s0+1) - 1/(t-s0+1))
+		p = M(i,j)*(1/(s-s0+1) - 1/(t-s0+1));
 	end;
 
 function t = Kbarinv(M,i,j,tcurr,r)
-	tr = r/M(i,j)*exp(tcurr);
-	if (tr>=1)
+	%tr = r/M(i,j)*exp(tcurr);
+	%if (tr>=1)
+	%	t = Inf;
+	%else
+	%	t = tcurr-log1p(-tr);
+	%end;
+	t = 1/(1/(1+tcurr) - r/M(i,j)) - 1;
+	if (t<0)
 		t = Inf;
-	else
-		t = tcurr-log1p(-tr);
 	end;
