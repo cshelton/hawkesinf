@@ -14,7 +14,7 @@
 //#define DEBUG
 #define RANDADV
 #define RESAMPPARENT
-//#define PARENTCHANGEV (does not work!)
+#define PARENTCHANGEV (does not work!)
 
 // A Hawkes process
 // type K (the kernel) must implement the following member functions:

@@ -17,8 +17,8 @@
 #include <algorithm>
 #include <fenv.h>
 
-#define EXPK
-//#define POWK
+//#define EXPK
+#define POWK
 
 #define USESPARSE
 
@@ -104,6 +104,8 @@ int runfortime(F f, double tsec) {
 	while(!timerdone) {
 		f(); count++;
 	}
+	if (count==1)
+		cout << "warning: " << tsec << " produced only 1 iteration" << endl;
 	return count;
 }
 
@@ -181,8 +183,11 @@ struct problem {
 #endif
 				};
 			case 6:
-			case 7:
 				return loadgraph(100,"graph100",0.05,0.25,0.125);
+			case 7:
+				return loadgraph(500,"graph500",0.05,0.125,0.0625);
+			case 8:
+				return loadgraph(500,"graph500",0.1,0.125,0.0625);
 
 		}
 	}
@@ -292,14 +297,58 @@ struct problem {
 				evid.events[3].clear();
 			break;
 			case 6:
+				{
+#ifdef EXPK
 				loaddata("graph100data.txt");
+#endif
+#ifdef POWK
+				loaddata("graph100data2.txt");
+#endif
 			
+				constexpr double mint=0,maxt=10;
 				for(int i=0;i<evid.unobs.size();i+=2) {
-					evid.unobs[i].emplace_back(2,8);
+					evid.unobs[i].emplace_back(mint,maxt);
 					set<double> e;
 					swap(e,evid.events[i]);
 					for(double t : e)
-						if (t<2 || t>8) evid.events[i].emplace(t);
+						if (t<mint || t>=maxt) evid.events[i].emplace(t);
+				}
+				}
+			break;
+			case 7:
+				{
+#ifdef EXPK
+				loaddata("graph500data.txt");
+#endif
+#ifdef POWK
+				loaddata("graph500data2.txt");
+#endif
+				constexpr double mint=0,maxt=10;
+				for(int i=0;i<evid.unobs.size();i+=2) {
+					evid.unobs[i].emplace_back(mint,maxt);
+					set<double> e;
+					swap(e,evid.events[i]);
+					for(double t : e)
+						if (t<mint || t>=maxt) evid.events[i].emplace(t);
+				}
+				}
+			break;
+			case 8:
+				{
+#ifdef EXPK
+				loaddata("graph500double.txt");
+#endif
+#ifdef POWK
+				loaddata("graph500double2.txt");
+#endif
+				constexpr double mint=0,maxt=10;
+				for(int i=0;i<evid.unobs.size();i+=2) {
+					evid.unobs[i].emplace_back(mint,maxt);
+					set<double> e;
+					swap(e,evid.events[i]);
+					for(double t : e)
+						if (t<mint || t>=maxt) evid.events[i].emplace(t);
+				}
 				}
 			break;
 		}
@@ -338,7 +387,9 @@ struct problem {
 					return tr.events[0].size();
 			case 4: case 5:
 					return tr.events[3].size();
-			case 6: {
+			case 6:
+			case 7:
+			case 8: {
 				int ret = 0;
 				for(int i=0;i<tr.events.size();i+=2)
 					ret += tr.events[i].size();
@@ -396,6 +447,10 @@ logsp operator*(const logsp &a, const double &d) {
 logsp operator/(const logsp &a, const logsp &b) {
 	return {a.x/b.x,a.y-b.y};
 }
+
+logsp operator/(double a, const logsp &b) {
+	return {a/b.x,-b.y};
+}
 	
 
 //------
@@ -430,12 +485,16 @@ struct gsampler {
 	double estat() const {
 		return v/c;
 	}
+
+	double ttl() const {
+		return v;
+	}
 	
 	double nsamp() const {
 		return c;
 	}
 
-	logsp ttlwt() const {
+	double ttlwt() const {
 		return c;
 	}
 };
@@ -468,8 +527,12 @@ struct issampler {
 		v += w*p.stat(samp.first);
 	}
 
-	double estat() const {
+	logsp estat() const {
 		return v/wt;
+	}
+
+	logsp ttl() const {
+		return v;
 	}
 
 	double nsamp() const {
@@ -489,10 +552,14 @@ auto makeissampler(const problem &pr, RAND &rand) {
 //------
 
 template<typename SAMPLER>
-tuple<double,double,int,double> runsampler(SAMPLER s, double time) {
+tuple<logsp,double,int,logsp> runsampler(SAMPLER s, double time) {
 	auto step = [&s](){ s.step(); };
 	int c = runfortime(step,time);
-	return tuple<double,double,int,logsp>(s.estat(),s.nsamp(),c,s.ttlwt());
+	double num = s.ttl();
+	double den = s.ttlwt();
+	double ans = s.estat();
+	//cout << time << ": " << num << '/' << den << "=" << num/den << " =?= " << ans << endl;
+	return tuple<logsp,double,int,logsp>(s.ttl(),s.nsamp(),c,s.ttlwt());
 }
 
 string streamname(int pnum, int burnin, int kappa) {
@@ -525,15 +592,16 @@ int main(int argc, char **argv) {
 
 	std::random_device rd;
      std::mt19937_64 rand(rd());
+     //std::ranlux48 rand(rd());
 
 
 	int pnum = argc>1 ? atoi(argv[1]) : 1;
 	double maxt = argc>2 ? atof(argv[2]) : 10;
 	double mint = argc>3 ? atof(argv[3]) : 0.01;
-	int nrep = argc>4 ? atoi(argv[4]) : 1000;
-	int npts = argc>5 ? atoi(argv[5]) : 20;
-	int burnin = argc>6 ? atoi(argv[6]) : 1000;
-	double kappa = argc>7 ? atof(argv[7]) : 2;
+	double kappa = argc>4 ? atof(argv[4]) : 2;
+	int burnin = argc>5 ? atoi(argv[5]) : 1000;
+	int nrep = argc>6 ? atoi(argv[6]) : 100;
+	int npts = argc>7 ? atoi(argv[7]) : 16;
 	int only = argc>8 ? atoi(argv[8]) : 0;
 
 	if (pnum<0) {
@@ -576,26 +644,29 @@ int main(int argc, char **argv) {
 	}
 	for(int i=0;i<nrep;i++) {
 		for(int j=0;j<times.size();j++) {
-			double v,nsamp;
+			logsp ttl(0);
+			double nsamp;
 			logsp ttlwt(0);
 			int c;
 			if (!only || only==1) {
-				std::tie(v,nsamp,c,ttlwt) = runsampler(makesamplerA(),times[j]);
+				std::tie(ttl,nsamp,c,ttlwt) = runsampler(makesamplerA(),times[j]);
+				double v = ttl/ttlwt;
 				valsum[0][j] += v;
 				valsum2[0][j] += v*v;
 				nsamps[0][j] += nsamp;
 				cs[0][j] += c;
+				sums[0][j] += ttl;
 				wts[0][j] += ttlwt;
-				sums[0][j] += ttlwt*v;
 			}
 			if (!only || only==2) {
-				std::tie(v,nsamp,c,ttlwt) = runsampler(makesamplerB(),times[j]);
+				std::tie(ttl,nsamp,c,ttlwt) = runsampler(makesamplerB(),times[j]);
+				double v = ttl/ttlwt;
 				valsum[1][j] += v;
 				valsum2[1][j] += v*v;
 				nsamps[1][j] += nsamp;
 				cs[1][j] += c;
+				sums[1][j] += ttl;
 				wts[1][j] += ttlwt;
-				sums[1][j] += ttlwt*v;
 			}
 			cout << '.';
 			cout.flush();
@@ -606,7 +677,7 @@ int main(int argc, char **argv) {
 		valvar[1] = vector<double>(times.size(),0);
 		array<double,2> trueest;
 		for(int k=0;k<2;k++) {
-			double num=0.0,den=0.0;
+			logsp num(0.0),den(0.0);
 			for(int j=0;j<times.size();j++) {
 				num += sums[k][j];
 				den += wts[k][j];
@@ -650,6 +721,10 @@ int main(int argc, char **argv) {
 					outdata << ' ' << sums[k][j];
 				for(int k=0;k<2;k++)
 					outdata << ' ' << wts[k][j];
+				for(int k=0;k<2;k++)
+					outdata << ' ' << valsum[k][j];
+				for(int k=0;k<2;k++)
+					outdata << ' ' << valsum2[k][j];
 				outdata << endl;
 			}
 		}
