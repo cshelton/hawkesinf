@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <vector>
+#include "missingstd.hpp"
 
 struct singleexpkernel {
 	double alpha,beta; // phi = alpha*exp(-beta*t)
@@ -110,7 +111,7 @@ struct multikernel {
 	multikernel(std::vector<double> mus,
 			std::vector<std::vector<double>> ws,
 			T &&...skparams) 
-		: baserates(mus), W(ws), skernel(std::forward<T>(skparams)...) {
+		: baserates(std::move(mus)), W(std::move(ws)), skernel(std::forward<T>(skparams)...) {
 		baseratesum = 0;
 		for(int i=0;i<W.size();i++) {
 			double s = 0;
@@ -118,6 +119,61 @@ struct multikernel {
 			Wsum.emplace_back(s);
 			baseratesum += baserates[i];
 		}
+	}
+
+	struct toitt {
+		std::vector<double>::const_iterator i,e;
+		int ind;
+		toitt(std::vector<double>::const_iterator b, std::vector<double>::const_iterator en, bool end=false) {
+			e=en;
+			if (end) {
+				i=e;
+				ind = 0;
+			} else {
+				i = b;
+				for(ind = 0;i!=e && *i==0;++i,++ind)
+					;
+			}
+		}
+
+		const int &operator*() const { return ind; }
+		const int *operator->() const { return &ind; }
+		toitt &operator++() { 
+			for(++i,++ind;i!=e && *i==0;++i,++ind)
+				;
+			return *this;
+		}
+		toitt &operator++(int) { 
+			toitt ret(*this);
+			++(*this);
+			return ret;
+		}
+		bool operator==(const toitt &itt) const {
+			return i==itt.i;
+		}
+		bool operator!=(const toitt &itt) const {
+			return i!=itt.i;
+		}
+	};
+
+	struct toittrange {
+		std::vector<double>::const_iterator b,e;
+		toittrange(const multikernel &kernel, int f) {
+			if (f<0) {
+				b = kernel.baserates.begin();
+				e = kernel.baserates.end();
+			} else {
+				b = kernel.W[f].begin();
+				e = kernel.W[f].end();
+			}
+		}
+
+		toitt begin() const { return toitt(b,e); }
+		toitt end() const { return toitt(b,e,true); }
+	};
+
+	constexpr toittrange fromW(int from) const {
+		return {*this,from};
 	}
 
 	constexpr double phi(int i, int j, double t) const {
@@ -194,4 +250,213 @@ struct multikernel {
 	}
 };
 		
+template<typename SK>
+struct sparsemultikernel {
+	std::vector<double> baserates;
+	double baseratesum;
+	// W[i][j] is the multiplier for events from i generating new events in j
+	std::vector<std::vector<std::pair<int,double>>> W;
+	std::vector<std::vector<std::pair<int,double>>> Wtrans;
+	std::vector<double> Wsum;
+	SK skernel;
+
+	template<typename... T>
+	sparsemultikernel(std::vector<double> mus,
+			std::vector<std::vector<std::pair<int,double>>> ws,
+			T &&...skparams) 
+		: baserates(std::move(mus)), W(std::move(ws)), Wtrans(W.size()), skernel(std::forward<T>(skparams)...) {
+		baseratesum = 0;
+		for(int i=0;i<W.size();i++) {
+			double s = 0;
+			for(auto &j : W[i]) {
+				s += j.second;
+				Wtrans[j.first].emplace_back(i,j.second);
+			}
+			Wsum.emplace_back(s);
+			baseratesum += baserates[i];
+		}
+	}
+
+	template<typename... T>
+	sparsemultikernel(std::vector<double> mus,
+			const std::vector<std::vector<double>> &ws,
+			T &&...skparams) 
+		: baserates(std::move(mus)), Wtrans(ws.size()), W(ws.size()),
+			skernel(std::forward<T>(skparams)...) {
+		baseratesum = 0;
+		for(int i=0;i<ws.size();i++) {
+			double s = 0;
+			for(int j=0;j<ws[i].size();j++)
+				if (ws[i][j]>0.0) {
+					s += ws[i][j];
+					Wtrans[j].emplace_back(i,ws[i][j]);
+					W[i].emplace_back(j,ws[i][j]);
+				}
+			Wsum.emplace_back(s);
+			baseratesum += baserates[i];
+		}
+	}
+
+	struct toitt {
+		bool isbase;
+		union {
+			struct {
+				std::vector<std::pair<int,double>>::const_iterator i,e;
+			} w;
+			struct {
+				std::vector<double>::const_iterator i,e;
+				int ind;
+			} b;
+		};
+		toitt(std::vector<double>::const_iterator be, std::vector<double>::const_iterator en, bool end=false) {
+			isbase = true;
+			b.e=en;
+			if (end) {
+				b.i=b.e;
+				b.ind = 0;
+			} else {
+				b.i = be;
+				for(b.ind = 0;b.i!=b.e && *b.i==0;++b.i,++b.ind)
+					;
+			}
+		}
+		toitt(std::vector<std::pair<int,double>>::const_iterator b, std::vector<std::pair<int,double>>::const_iterator en, bool end=false) {
+			isbase = false;
+			w.e = en;
+			if (end) {
+				w.i=w.e;
+			} else {
+				w.i=b;
+			}
+		}
+
+		const int &operator*() const { return isbase ? b.ind : w.i->first; }
+		toitt &operator++() { 
+			if (isbase) {
+				for(++b.i,++b.ind;b.i!=b.e && *b.i==0;++b.i,++b.ind)
+					;
+			} else {
+				++w.i;
+			}
+			return *this;
+		}
+		toitt &operator++(int) { 
+			toitt ret(*this);
+			++(*this);
+			return ret;
+		}
+		bool operator==(const toitt &itt) const {
+			return isbase ? (b.i==itt.b.i) : (w.i==itt.w.i);
+		}
+		bool operator!=(const toitt &itt) const {
+			return !(*this==itt);
+		}
+	};
+
+	struct toittrange {
+		bool isbase;
+		union {
+			struct {
+				std::vector<double>::const_iterator b,e;
+			} b;
+			struct {
+				std::vector<std::pair<int,double>>::const_iterator b,e;
+			} w;
+		};
+		toittrange(const sparsemultikernel &kernel, int f) {
+			if (f<0) {
+				isbase = true;
+				b.b = kernel.baserates.begin();
+				b.e = kernel.baserates.end();
+			} else {
+				isbase = false;
+				w.b = kernel.W[f].begin();
+				w.e = kernel.W[f].end();
+			}
+		}
+
+		toitt begin() const { return isbase ? toitt(b.b,b.e)
+									: toitt(w.b,w.e); }
+		toitt end() const { return isbase ? toitt(b.b,b.e,true)
+									: toitt(w.b,w.e,true); }
+	};
+
+	constexpr toittrange fromW(int from) const {
+		return {*this,from};
+	}
+
+	constexpr double getW(int i, int j) const {
+		auto l = mystd::lower_bound(W[i].begin(),W[i].end(),j,
+				[](const std::pair<int,double> &p, int j) {
+					return p.first < j; });
+		return (l!=W[i].end() && l->first==j) ? l->second : 0.0;
+	}
+
+	constexpr double phi(int i, int j, double t) const {
+		return i<0 ? baserates[j] : getW(i,j)*skernel.phi(t);
+	}
+	// same as above, but summed over all j
+	constexpr double phi(int i, double t) const {
+		return i<0 ? baseratesum : Wsum[i]*skernel.phi(t);
+	}
+
+	constexpr double intphi(int i, int j, double t0, double t1) const {
+		return i<0 ? baserates[j]*(t1-t0) : skernel.intphi(t0,t1)*getW(i,j);
+	}
+	// same as above, but summed over all j
+	constexpr double intphi(int i, double t0, double t1) const {
+		return i<0 ? baseratesum*(t1-t0) : skernel.intphi(t0,t1)*Wsum[i];
+	}
+
+	constexpr double invintphi(int i, int j, double s, double t0) const {
+		if (i<0) return t0+s/baserates[j];
+		if (getW(i,j)<=0.0) return std::numeric_limits<double>::infinity();
+		return skernel.invintphi(s/getW(i,j),t0);
+	}
+
+	constexpr double invintphi(int i, double s, double t0) const {
+		if (i<0) return t0+s/baseratesum;
+		if (Wsum[i]<=0.0) return std::numeric_limits<double>::infinity();
+		return skernel.invintphi(s/Wsum[i],t0);
+	}
+
+	constexpr double mu(int i) const {
+		return baserates[i];
+	}
+
+	struct state {
+		double t;
+		std::vector<typename SK::state> states;
+	};
+
+	state basestate(double t) const {
+		state ret{};
+		for(int i=0;i<baserates.size();i++)
+			ret.states.emplace_back(skernel.basestate(t));
+		ret.t = t;
+		return ret;
+	}
+	double advstate(double t, state &s, const std::vector<bool> &omit, bool uselog=true) const {
+		double ret = 0.0;
+		for(int i=0;i<W.size();i++) {
+			double mult = 0.0;
+			for(auto &j : W[i])
+				if (!omit[j.first]) mult+=j.second;
+			ret += skernel.advstate(t,s.states[i],true)*mult;
+		}
+		for(int i=0;i<omit.size();i++)
+			if (!omit[i]) ret += baserates[i]*(s.t-t);
+		s.t = t;
+		return uselog ? ret : std::exp(ret);
+	}
+	void eventtostate(int i, state &s) const {
+		skernel.eventtostate(s.states[i]);
+	}
+	double eventrate(int i, const state &s, bool uselog=true) const {
+		double ret = baserates[i];
+		for(auto &j : Wtrans[i])
+			ret += skernel.eventrate(s.states[j.first],false)*j.second;
+		return uselog ? std::log(ret) : ret;
+	}
+};
 #endif

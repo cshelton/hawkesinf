@@ -9,6 +9,7 @@
 #include <tuple>
 #include <map>
 #include <cassert>
+#include "missingstd.hpp"
 
 //#define DEBUG
 #define RANDADV
@@ -41,32 +42,6 @@
 // and
 //    mu(int i)
 //      which is the base rate of event i
-
-namespace mystd {
-	// g++ 4.8.1 seems to be missing this version of lower_bound
-	template<typename _ForwardIterator, typename _Tp, typename CMP>
-		_ForwardIterator
-		lower_bound(_ForwardIterator __first, _ForwardIterator __last,
-				const _Tp& __val, CMP cmp)
-		{
-			typedef typename std::iterator_traits<_ForwardIterator>::difference_type
-				_DistanceType;
-
-			_DistanceType __len = std::distance(__first, __last);
-			while (__len > 0) {
-				_DistanceType __half = __len >> 1;
-				_ForwardIterator __middle = __first;
-				std::advance(__middle, __half);
-				if (cmp(*__middle,__val)) {
-					__first = __middle;
-					++__first;
-					__len = __len - __half - 1;
-				}
-				else __len = __half;
-			}
-			return __first;
-		}
-}
 
 template<typename K>
 struct hp {
@@ -210,12 +185,13 @@ struct hp {
 				auto ww = kernel.eventrate(e.i,state,true);
 				//std::cout << ww << std::endl;
 				logwt += ww;
-			} else { addevent(e.origi,e.i,e.origt,e.t);
+			} else {
+				addevent(e.origi,e.i,e.origt,e.t);
 				tr.events[e.i].emplace_hint(tr.events[e.i].end(),e.t);
 			}
 			kernel.eventtostate(e.i,state);
-			for(int i=0;i<tr.events.size();i++)
-				if (e.i<0 || kernel.W[e.i][i]!=0.0) addevent(e.i,i,e.t,e.t);
+			for(auto &i : kernel.fromW(e.i))
+				addevent(e.i,i,e.t,e.t);
 		}
 		auto ddwt = kernel.advstate(T,state,isunobs,true);
 		//std::cout << "advance to " << T << " (end): " << ddwt << std::endl;
@@ -496,10 +472,8 @@ struct hp {
 				sampvirt(ev->first.t,ev->first.label,l,ev);
 */
 			std::vector<std::vector<double>> vetimes (state.orig.events.size());
-			for(int l=0;l<state.orig.events.size();l++)
-				if (!state.orig.unobs[l].empty()
-				   && (ev->first.label<0
-						|| kernel.W[ev->first.label][l]!=0.0))
+			for(auto &l : kernel.fromW(ev->first.label))
+				if (!state.orig.unobs[l].empty())
 					vetimes[l]=sampvirt(ev->first.t,ev->first.label,l,ev);
 			return vetimes;
 			};

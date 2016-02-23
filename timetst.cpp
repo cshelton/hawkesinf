@@ -13,9 +13,14 @@
 #include <string>
 #include <sys/stat.h>
 #include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <fenv.h>
 
 #define EXPK
 //#define POWK
+
+#define USESPARSE
 
 //using namespace std::string_literals;
 
@@ -69,8 +74,15 @@ int runfortime(F f, double tsec) {
 	sev.sigev_signo = SIGUSR1;
 	sev.sigev_value.sival_ptr = (void *)(&timerdone);
 	// or CLOCK_PROCESS_CPUTIME_ID
-	if (timer_create(CLOCK_THREAD_CPUTIME_ID,&sev,&timerid) == -1)
-		throw runtime_error("timer_create failed");
+	if (timer_create(CLOCK_THREAD_CPUTIME_ID,&sev,&timerid) == -1) {
+		switch (errno) {
+			case EAGAIN: throw runtime_error("timer_create failed: temp error");
+			case EINVAL: throw runtime_error("timer_create failed: invalid clock ID");
+			case ENOMEM: throw runtime_error("timer_create failed: mem alloc");
+			default: throw runtime_error("timer_create failed: unknown");
+		}
+	}
+			
 
 	struct itimerspec its;
 	its.it_interval.tv_sec = 0;	
@@ -96,13 +108,23 @@ int runfortime(F f, double tsec) {
 }
 
 #ifdef EXPK
-static string kname("exp");
-using hprocess = hp<multikernel<singleexpkernel>>;
+	#ifdef USESPARSE
+		static string kname("exp(s)");
+		using hprocess = hp<sparsemultikernel<singleexpkernel>>;
+	#else
+		static string kname("exp");
+		using hprocess = hp<multikernel<singleexpkernel>>;
+	#endif
 #endif
 
 #ifdef POWK
-static string kname("pow");
-using hprocess = hp<multikernel<singlepowerkernel>>;
+	#ifdef USESPARSE
+		static string kname("pow(s)");
+		using hprocess = hp<sparsemultikernel<singlepowerkernel>>;
+	#else
+		static string kname("pow");
+		using hprocess = hp<multikernel<singlepowerkernel>>;
+	#endif
 #endif
 
 struct problem {
@@ -116,30 +138,33 @@ struct problem {
 				vector<vector<double>>{vector<double>{1/4.0,2/4.0},
 					vector<double>{1/4.0,1/4.0}},
 #ifdef EXPK
-					1,1};
+					1,1
 #endif
 #ifdef POWK
-					1,-2,1};
+					1,-2,1
 #endif
+				};
 			case 2: return {vector<double>{0.0001,0.0001},
 				vector<vector<double>>{vector<double>{3/9.0,1/9.0},
 					vector<double>{1/9.0,3/9.0}},
 #ifdef EXPK
-					1,0.5};
+					1,0.5
 #endif
 #ifdef POWK
-					1,-1.5,1};
+					1,-1.5,1
 #endif
+				};
 			case 3: return {vector<double>{0.01,0.000001,0.000001},
 				vector<vector<double>>{vector<double>{0.0, 1.0, 0.0},
 						vector<double>{0.0, 0.0, 1.0},
 					vector<double>{0.0, 0.0, 0.0}},
 #ifdef EXPK
-					1.0,2};
+					1.0,2
 #endif
 #ifdef POWK
-					1,-2,1};
+					1,-2,1
 #endif
+				};
 			case 4:
 			case 5:
 				return {vector<double>{0.001,0.000001,0.000001,0.000001,0.000001},
@@ -149,23 +174,70 @@ struct problem {
                     vector<double>{0.0, 0.0, 0.0, 0.0, 1.0},
 				vector<double>{0.0, 0.0, 0.0, 0.0, 0.0}},
 #ifdef EXPK
-					1.0,0.5};
+					1.0,0.5
 #endif
 #ifdef POWK
-					1.0,-1.5,1};
+					1.0,-1.5,1
 #endif
+				};
+			case 6:
+			case 7:
+				return loadgraph(100,"graph100",0.05,0.25,0.125);
+
 		}
 	}
 
+	static hprocess loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
+		ifstream f(fname.c_str());
+		if (!f.good()) throw runtime_error("failed to open "+fname);
+#ifdef USESPARSE
+		std::vector<std::vector<std::pair<int,double>>> W(n);
+#else
+		std::vector<std::vector<double>> W(n,std::vector<double>(n,0));
+#endif
+
+		while(1) {
+			int i;
+			f >> i;
+			if (f.eof()) break;
+			string str;
+			getline(f,str);
+			istringstream ss(str);
+			int j;
+			vector<int> ind(1,i);
+			while(ss>>j) {
+#ifdef USESPARSE
+				ind.emplace_back(j);
+#else
+				W[i][j] = linkalpha;
+#endif
+			}
+#ifdef USESPARSE
+			sort(ind.begin(),ind.end());
+			for(int j : ind)
+				W[i].emplace_back(j,j==i ? selfalpha : linkalpha);
+#else
+			W[i][i] = selfalpha;
+#endif
+		}
+		return {vector<double>(n,mu),W,
+#ifdef EXPK
+					1,1
+#endif
+#ifdef POWK
+					1,-2,1
+#endif
+			};
+	}
+
 	problem(int num) : pnum(num), process(getproblemprocess(num)) {
+		for(int i=0;i<process.kernel.baserates.size();i++) {
+			evid.events.emplace_back();
+			evid.unobs.emplace_back();
+		}
 		switch(num) {
 			case 1:
 				evid.tend = 5;
-
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
 
 				evid.unobs[0].emplace_back(1,3);
 
@@ -173,11 +245,6 @@ struct problem {
 			break;
 			case 2:
 				evid.tend = 10;
-
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
 
 				evid.unobs[0].emplace_back(1,3);
 				evid.unobs[0].emplace_back(6.5,7.5);
@@ -193,13 +260,6 @@ struct problem {
 			case 3:
 				evid.tend = 3;
 
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
-
 				evid.unobs[0].emplace_back(0,3);
 				evid.unobs[1].emplace_back(0,3);
 				evid.unobs[2].emplace_back(0,2);
@@ -208,17 +268,6 @@ struct problem {
 			break;
 			case 4:
 				evid.tend = 3;
-
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.events.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
-				evid.unobs.emplace_back();
 
 				evid.unobs[0].emplace_back(0,3);
 				evid.unobs[1].emplace_back(0,3);
@@ -242,6 +291,17 @@ struct problem {
 				evid.events[1].clear();
 				evid.events[3].clear();
 			break;
+			case 6:
+				loaddata("graph100data.txt");
+			
+				for(int i=0;i<evid.unobs.size();i+=2) {
+					evid.unobs[i].emplace_back(2,8);
+					set<double> e;
+					swap(e,evid.events[i]);
+					for(double t : e)
+						if (t<2 || t>8) evid.events[i].emplace(t);
+				}
+			break;
 		}
 	}
 	
@@ -257,8 +317,8 @@ struct problem {
 			if (data.eof()) break;
 			if (ii!=me+1) 
 				throw runtime_error("bad file format: "+fname);
-			evid.events.emplace_back();
-			evid.unobs.emplace_back();
+			//evid.events.emplace_back();
+			//evid.unobs.emplace_back();
 			for(int j=0;j<ne;j++) {
 				double t;
 				data >> t;
@@ -273,11 +333,73 @@ struct problem {
 	}
 
 	double stat(const traj &tr) const {
-		return pnum<4 ? tr.events[0].size() : tr.events[3].size();
+		switch(pnum) {
+			case 0: case 1: case 2: case 3:
+					return tr.events[0].size();
+			case 4: case 5:
+					return tr.events[3].size();
+			case 6: {
+				int ret = 0;
+				for(int i=0;i<tr.events.size();i+=2)
+					ret += tr.events[i].size();
+				return ret;
+				}
+			default:
+				return 0;
+		}
 	}
 };
 
+struct logsp {
+	logsp(double d, double logexp=0.0) : x(d), y(logexp) {}
+	operator double() const { return x*exp(y); }
+	
+	// x * exp(y)
+	double x,y;
+};
+
+logsp operator+(const logsp &a, const logsp &b) {
+	return a.x==0.0 ? b :
+		(b.x==0.0 ? a :
+		 (a.y<b.y ? logsp(b.x + a.x*exp(a.y-b.y),b.y) :
+		  logsp(a.x + b.x*exp(b.y-a.y),a.y)
+		 )
+		);
+}
+
+logsp &operator+=(logsp &a, const logsp &b) {
+	if (a.x==0.0) {
+		a = b;
+	} else if (b.x==0.0) {
+	} else if (a.y<b.y) {
+		a.x *= exp(a.y-b.y);
+		a.x += b.x;
+		a.y = b.y;
+	} else {
+		a.x += b.x*exp(b.y-a.y);
+	}
+	return a;
+}
+
+logsp operator-(const logsp &a, const logsp &b) {
+	return a+logsp(-b.x,b.y);
+}
+
+logsp operator*(const logsp &a, const logsp &b) {
+	return {a.x*b.x,a.y+b.y};
+}
+
+logsp operator*(const logsp &a, const double &d) {
+	return {a.x*d,a.y};
+}
+
+logsp operator/(const logsp &a, const logsp &b) {
+	return {a.x/b.x,a.y-b.y};
+}
+	
+
 //------
+
 
 template<typename RAND>
 struct gsampler {
@@ -312,6 +434,10 @@ struct gsampler {
 	double nsamp() const {
 		return c;
 	}
+
+	logsp ttlwt() const {
+		return c;
+	}
 };
 
 template<typename RAND>
@@ -326,20 +452,20 @@ template<typename RAND>
 struct issampler {
 	const problem &p;
 	RAND &r;
-	double v;
-	double wt;
-	double wt2;
+	logsp v;
+	logsp wt;
+	logsp wt2;
 
 	issampler(const problem &pr, RAND &rand) :
-			p(pr),v(0),wt(0),r(rand) {
+			p(pr),v(0),wt(0),wt2(0),r(rand) {
 	}
 
 	void step() {
 		auto samp = p.process.isample(p.evid,r);
-		double w = exp(samp.second);
+		logsp w(1,samp.second);
 		wt += w;
 		wt2 += w*w;
-		v += p.stat(samp.first)*w;
+		v += w*p.stat(samp.first);
 	}
 
 	double estat() const {
@@ -348,6 +474,10 @@ struct issampler {
 
 	double nsamp() const {
 		return wt*wt/wt2;
+	}
+
+	logsp ttlwt() const {
+		return wt;
 	}
 };
 
@@ -359,10 +489,10 @@ auto makeissampler(const problem &pr, RAND &rand) {
 //------
 
 template<typename SAMPLER>
-tuple<double,double,int> runsampler(SAMPLER s, double time) {
+tuple<double,double,int,double> runsampler(SAMPLER s, double time) {
 	auto step = [&s](){ s.step(); };
 	int c = runfortime(step,time);
-	return tuple<double,double,int>(s.estat(),s.nsamp(),c);
+	return tuple<double,double,int,logsp>(s.estat(),s.nsamp(),c,s.ttlwt());
 }
 
 string streamname(int pnum, int burnin, int kappa) {
@@ -390,6 +520,8 @@ void sampleproblem(int pnum, double T, R &rand) {
 }
 
 int main(int argc, char **argv) {
+
+//	feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
 
 	std::random_device rd;
      std::mt19937_64 rand(rd());
@@ -426,33 +558,44 @@ int main(int argc, char **argv) {
 	plot.set_style("linespoints");
 
 	vector<double> times;
-	for(double l=log(mint); l<log(maxt);l+=(log(maxt)-log(mint))/npts) {
+	double lmint = log(mint);
+	double lmaxt = log(maxt);
+	double dt = (lmaxt-lmint)/npts;
+	for(double l=lmint; l<lmaxt+dt/2;l+=dt) {
 		times.emplace_back(exp(l));
 	}
 	array<vector<double>,2> valsum,valsum2,nsamps,cs;
+	array<vector<logsp>,2> wts,sums;
 	for(int k=0;k<2;k++) {
 		valsum[k] = vector<double>(times.size(),0.0);
 		valsum2[k] = vector<double>(times.size(),0.0);
 		nsamps[k] = vector<double>(times.size(),0.0);
 		cs[k] = vector<double>(times.size(),0.0);
+		wts[k] = vector<logsp>(times.size(),0.0);
+		sums[k] = vector<logsp>(times.size(),0.0);
 	}
 	for(int i=0;i<nrep;i++) {
 		for(int j=0;j<times.size();j++) {
 			double v,nsamp;
+			logsp ttlwt(0);
 			int c;
 			if (!only || only==1) {
-				std::tie(v,nsamp,c) = runsampler(makesamplerA(),times[j]);
+				std::tie(v,nsamp,c,ttlwt) = runsampler(makesamplerA(),times[j]);
 				valsum[0][j] += v;
 				valsum2[0][j] += v*v;
 				nsamps[0][j] += nsamp;
 				cs[0][j] += c;
+				wts[0][j] += ttlwt;
+				sums[0][j] += ttlwt*v;
 			}
 			if (!only || only==2) {
-				std::tie(v,nsamp,c) = runsampler(makesamplerB(),times[j]);
+				std::tie(v,nsamp,c,ttlwt) = runsampler(makesamplerB(),times[j]);
 				valsum[1][j] += v;
 				valsum2[1][j] += v*v;
 				nsamps[1][j] += nsamp;
 				cs[1][j] += c;
+				wts[1][j] += ttlwt;
+				sums[1][j] += ttlwt*v;
 			}
 			cout << '.';
 			cout.flush();
@@ -462,9 +605,17 @@ int main(int argc, char **argv) {
 		valvar[0] = vector<double>(times.size(),0);
 		valvar[1] = vector<double>(times.size(),0);
 		array<double,2> trueest;
-		trueest[0] = valsum[0].back()/(i+1);
+		for(int k=0;k<2;k++) {
+			double num=0.0,den=0.0;
+			for(int j=0;j<times.size();j++) {
+				num += sums[k][j];
+				den += wts[k][j];
+			}
+			trueest[k] = num/den;
+		}
+		//trueest[0] = valsum[0].back()/(i+1);
 		cout << " (" << trueest[0] << ") ";
-		trueest[1] = valsum[1].back()/(i+1);
+		//trueest[1] = valsum[1].back()/(i+1);
 		cout << " (" << trueest[1] << ")" << endl;
 		for(int k=0;k<2;k++) 
 			for(int j=0;j<times.size();j++)
@@ -484,7 +635,7 @@ int main(int argc, char **argv) {
 			for(int k=0;k<2;k++)
 				outdata << ' ' << trueest[k];
 			outdata << endl;
-			outdata << "# runtime var_gibbs var_isamp mean_gibbs mean_isamp mean_nsamp_gibbs mean_effsamp_isamp mean_nitt_gibbs mean_nitt_isamp" << endl;
+			outdata << "# runtime var_G var_I mean_G mean_I mean_nsamp_G mean_effsamp_I mean_nitt_G mean_nitt_I sum_G sum_I den_G den_I" << endl;
 			for(int j=0;j<times.size();j++) {
 				outdata << times[j];
 				for(int k=0;k<2;k++)
@@ -495,6 +646,10 @@ int main(int argc, char **argv) {
 					outdata << ' ' << nsamps[k][j]/(i+1);
 				for(int k=0;k<2;k++)
 					outdata << ' ' << cs[k][j]/(i+1);
+				for(int k=0;k<2;k++)
+					outdata << ' ' << sums[k][j];
+				for(int k=0;k<2;k++)
+					outdata << ' ' << wts[k][j];
 				outdata << endl;
 			}
 		}
