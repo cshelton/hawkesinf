@@ -103,7 +103,7 @@ struct multikernel {
 	std::vector<double> baserates;
 	double baseratesum;
 	// W[i][j] is the multiplier for events from i generating new events in j
-	std::vector<std::vector<double>> W;
+	std::vector<std::vector<double>> W,Wtrans;
 	std::vector<double> Wsum;
 	SK skernel;
 
@@ -111,12 +111,16 @@ struct multikernel {
 	multikernel(std::vector<double> mus,
 			std::vector<std::vector<double>> ws,
 			T &&...skparams) 
-		: baserates(std::move(mus)), W(std::move(ws)), skernel(std::forward<T>(skparams)...) {
+		: baserates(std::move(mus)), W(std::move(ws)), Wsum(W.size(),0),
+			Wtrans(W.size(),std::vector<double>(W.size(),0)), skernel(std::forward<T>(skparams)...) {
 		baseratesum = 0;
 		for(int i=0;i<W.size();i++) {
 			double s = 0;
-			for(auto &x : W[i]) s += x;
-			Wsum.emplace_back(s);
+			for(int j=0;j<W.size();j++) {
+				Wtrans[j][i] = W[i][j];
+				s += W[i][j];
+			}
+			Wsum[i] = s;
 			baseratesum += baserates[i];
 		}
 	}
@@ -158,13 +162,16 @@ struct multikernel {
 
 	struct toittrange {
 		std::vector<double>::const_iterator b,e;
-		toittrange(const multikernel &kernel, int f) {
-			if (f<0) {
+		toittrange(const multikernel &kernel, int i, bool isto) {
+			if (isto) {
+				b = kernel.Wtrans[i].begin();
+				e = kernel.Wtrans[i].end();
+			} else if (i<0) {
 				b = kernel.baserates.begin();
 				e = kernel.baserates.end();
 			} else {
-				b = kernel.W[f].begin();
-				e = kernel.W[f].end();
+				b = kernel.W[i].begin();
+				e = kernel.W[i].end();
 			}
 		}
 
@@ -173,7 +180,11 @@ struct multikernel {
 	};
 
 	constexpr toittrange fromW(int from) const {
-		return {*this,from};
+		return {*this,from,false};
+	}
+	
+	constexpr toittrange toW(int to) const {
+		return {*this,to,true};
 	}
 
 	constexpr double phi(int i, int j, double t) const {
@@ -363,15 +374,19 @@ struct sparsemultikernel {
 				std::vector<std::pair<int,double>>::const_iterator b,e;
 			} w;
 		};
-		toittrange(const sparsemultikernel &kernel, int f) {
-			if (f<0) {
+		toittrange(const sparsemultikernel &kernel, int i, bool isto=false) {
+			if (isto) {
+				isbase = false;
+				w.b = kernel.Wtrans[i].begin();
+				w.e = kernel.Wtrans[i].end();
+			} else if (i<0) {
 				isbase = true;
 				b.b = kernel.baserates.begin();
 				b.e = kernel.baserates.end();
 			} else {
 				isbase = false;
-				w.b = kernel.W[f].begin();
-				w.e = kernel.W[f].end();
+				w.b = kernel.W[i].begin();
+				w.e = kernel.W[i].end();
 			}
 		}
 
@@ -382,7 +397,11 @@ struct sparsemultikernel {
 	};
 
 	constexpr toittrange fromW(int from) const {
-		return {*this,from};
+		return {*this,from,false};
+	}
+
+	constexpr toittrange toW(int to) const {
+		return {*this,to,true};
 	}
 
 	constexpr double getW(int i, int j) const {
