@@ -22,6 +22,7 @@
 
 #define USESPARSE
 
+//#define OLDGRAPHLOAD
 //using namespace std::string_literals;
 
 using namespace std;
@@ -183,11 +184,29 @@ struct problem {
 #endif
 				};
 			case 6:
+#ifdef OLDGRAPHLOAD
 				return loadgraph(100,"graph100",0.05,0.25,0.125);
+#else
+				return loadgraph(100,"graph100",0.1,0.5,0.125);
+#endif
 			case 7:
+#ifdef OLDGRAPHLOAD
 				return loadgraph(500,"graph500",0.05,0.125,0.0625);
+#else
+				return loadgraph(500,"graph500",0.1,0.5,0.125);
+#endif
 			case 8:
+#ifdef OLDGRAPHLOAD
 				return loadgraph(500,"graph500",0.1,0.125,0.0625);
+#else
+				return loadgraph(500,"graph500",0.2,0.5,0.25);
+#endif
+			case 9:
+				return loadgraph(100,"graph100",0.1,0.5,0.125);
+			case 10:
+				return loadgraph(100,"graph100",0.1,0.5,0.125);
+			case 11:
+				return loadgraph(100,"graph100",0.1,0.5,0.125);
 
 		}
 	}
@@ -201,6 +220,7 @@ struct problem {
 		std::vector<std::vector<double>> W(n,std::vector<double>(n,0));
 #endif
 
+		std::vector<int> indegrees(n,0);
 		while(1) {
 			int i;
 			f >> i;
@@ -216,6 +236,7 @@ struct problem {
 #else
 				W[i][j] = linkalpha;
 #endif
+				indegrees[j]++;
 			}
 #ifdef USESPARSE
 			sort(ind.begin(),ind.end());
@@ -225,6 +246,14 @@ struct problem {
 			W[i][i] = selfalpha;
 #endif
 		}
+#ifndef OLDGRAPHLOAD
+		for(int i=0;i<n;i++)
+#ifdef USESPARSE
+			for(auto &p : W[i]) p.second /= indegrees[p.first];
+#else
+			for(int j=0;j<n;j++) W[i][j] /= indegrees[j];
+#endif
+#endif
 		return {vector<double>(n,mu),W,
 #ifdef EXPK
 					1,1
@@ -304,15 +333,7 @@ struct problem {
 #ifdef POWK
 				loaddata("graph100data2.txt");
 #endif
-			
-				constexpr double mint=0,maxt=10;
-				for(int i=0;i<evid.unobs.size();i+=2) {
-					evid.unobs[i].emplace_back(mint,maxt);
-					set<double> e;
-					swap(e,evid.events[i]);
-					for(double t : e)
-						if (t<mint || t>=maxt) evid.events[i].emplace(t);
-				}
+				graphremove(0,10);
 				}
 			break;
 			case 7:
@@ -323,14 +344,7 @@ struct problem {
 #ifdef POWK
 				loaddata("graph500data2.txt");
 #endif
-				constexpr double mint=0,maxt=10;
-				for(int i=0;i<evid.unobs.size();i+=2) {
-					evid.unobs[i].emplace_back(mint,maxt);
-					set<double> e;
-					swap(e,evid.events[i]);
-					for(double t : e)
-						if (t<mint || t>=maxt) evid.events[i].emplace(t);
-				}
+				graphremove(0,10);
 				}
 			break;
 			case 8:
@@ -341,16 +355,55 @@ struct problem {
 #ifdef POWK
 				loaddata("graph500double2.txt");
 #endif
-				constexpr double mint=0,maxt=10;
-				for(int i=0;i<evid.unobs.size();i+=2) {
-					evid.unobs[i].emplace_back(mint,maxt);
-					set<double> e;
-					swap(e,evid.events[i]);
-					for(double t : e)
-						if (t<mint || t>=maxt) evid.events[i].emplace(t);
-				}
+				graphremove(0,10);
 				}
 			break;
+			case 9:
+				{
+#ifdef EXPK
+				loaddata("graph100-10.dat");
+#endif
+#ifdef POWK
+				loaddata("graph100-10-2.dat");
+#endif
+				graphremove(0,10);
+			
+				}
+			break;
+			case 10:
+				{
+#ifdef EXPK
+				loaddata("graph100-100.dat");
+#endif
+#ifdef POWK
+				loaddata("graph100-100-2.dat");
+#endif
+				graphremove(0,100);
+			
+				}
+			break;
+			case 11:
+				{
+#ifdef EXPK
+				loaddata("graph100-1000.dat");
+#endif
+#ifdef POWK
+				loaddata("graph100-1000-2.dat");
+#endif
+				graphremove(0,1000);
+			
+				}
+			break;
+		}
+	}
+
+	void graphremove(double mint, double maxt) {
+		for(int i=0;i<evid.unobs.size();i+=2) {
+			evid.unobs[i].emplace_back(mint,maxt);
+			set<double> e;
+			swap(e,evid.events[i]);
+			for(double t : e)
+				if (t<mint || t>=maxt) evid.events[i].emplace(t);
 		}
 	}
 	
@@ -389,7 +442,10 @@ struct problem {
 					return tr.events[3].size();
 			case 6:
 			case 7:
-			case 8: {
+			case 8:
+			case 9:
+			case 10:
+			case 11: {
 				int ret = 0;
 				for(int i=0;i<tr.events.size();i+=2)
 					ret += tr.events[i].size();
