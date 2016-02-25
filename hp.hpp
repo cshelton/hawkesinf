@@ -213,7 +213,8 @@ struct hp {
 			double t;
 			int label;
 			bool operator<(const eventtime &e) const {
-				return t==e.t ? label<e.label : t<e.t;
+				return label==e.label ? t<e.t : label<e.label;
+				//return t==e.t ? label<e.label : t<e.t;
 			}
 		};
 		struct eventinfo {
@@ -510,7 +511,8 @@ struct hp {
 		auto averesampvchildrenrate = [&expratio,&state,&rangecmp,this](eiterator ev) {
 				double deln = -ev->second.vchildren.size();
 				double t0 = ev->first.t;
-				for(int l=0;l<state.orig.events.size();l++) {
+				for(int l : kernel.fromW(ev->first.label)) {
+				//for(int l=0;l<state.orig.events.size();l++) {
 					auto &unobs = state.orig.unobs[l];
 					for(auto j = mystd::lower_bound(
 							unobs.begin(), unobs.end(),
@@ -613,11 +615,44 @@ struct hp {
 		// resample parent:
 		if (ce->second.e==etype::evid
 			|| ce->second.e==etype::norm) {
-			// this is too slow and must be improved!!
 			std::vector<std::pair<eiterator,double>> poss;
 			double wtsum = 0.0;
+			eiterator e;
+
+			for(e = state.events.begin();e!=state.events.end() && e->first.label==-1;++e) {
+				double wt = kernel.phi(-1,ce->first.label,
+									ce->first.t-e->first.t);
+				if (wt>0.0) {
+					poss.emplace_back(e,wt);
+					wtsum += wt;
+				}
+			}
+			//std::cout << "from l=" << ce->first.t << ' ' << ce->first.label << std::endl;
+			//for(auto &e : state.events) 
+			//	std::cout << '\t' << e.first.t << ' ' << e.first.label << std::endl;
+			for(auto &l : kernel.toW(ce->first.label)) {
+				//std::cout << "\tto l=" << l << std::endl;
+				typename gibbsstate::eventtime levent(-1,l);
+				e = state.events.lower_bound(levent);
+				//if (e==state.events.end()) std::cout << "\t\tend" << std::endl;
+				//else std::cout << "\t\tstart=" << e->first.t << ' ' << e->first.label << std::endl;
+				for(e = state.events.lower_bound(levent);e!=state.events.end() 
+						&& e->first.label==l && e->first.t<ce->first.t;++e) {
+					//std::cout << "\t\tt=" << e->first.t << std::endl;
+					double wt = kernel.phi(l,ce->first.label,
+										ce->first.t-e->first.t);
+					if (wt>0.0) {
+						poss.emplace_back(e,wt);
+						wtsum += wt;
+					}
+				}
+			}
+
+/*
 			for(auto e=state.events.begin();e!=state.events.end()
-						&& e->first.t<ce->first.t;++e) {
+						//&& e->first.t<ce->first.t
+						;++e) {
+				if (e->first.t>=ce->first.t) continue;
 #ifndef PARENTCHANGEV
 				if (e->second.e==etype::virt) continue;
 #endif
@@ -631,6 +666,8 @@ struct hp {
 					wtsum += wt;
 				}
 			}
+*/
+
 			std::uniform_real_distribution<> samp(0,wtsum);
 			double s = samp(rand);
 			for(auto &p : poss) {
@@ -667,7 +704,7 @@ struct hp {
 						mb *= wtsum/(wtsum+delwt);
 					}
 					double ma = 1.0;
-					if (eold->second.numrealchildren==1) {
+					if (eold->second.e==etype::norm && eold->second.numrealchildren==1) {
 						if (e->second.e==etype::virt && e->second.par==eold) {
 						} else {
 							if (samp(rand)>=1.0/state.kappa) {
@@ -687,15 +724,20 @@ struct hp {
 						}
 					}
 #ifdef DEBUGPCV
-					state.print(std::cout);
+					//state.print(std::cout);
 					std::cout << "par change: " << eold->first.t << " to " << e->first.t << std::endl;
+					std::cout << "\tce = " << ce->first.label << ',' << ce->first.t << std::endl;
 					if (eold->second.e==etype::virt)
 						std::cout << "\tV";
+					else if (eold->second.e==etype::evid)
+						std::cout << "\tE";
 					else std::cout << "\t" << (eold->second.e!=etype::norm ? '1' : eold->second.numrealchildren-1);
 					if (makev) std::cout << 'v';
 					else std::cout << '.';
 					if (e->second.e==etype::virt)
 						std::cout << " -> V" << std::endl;
+					else if (e->second.e==etype::evid)
+						std::cout << " -> E" << std::endl;
 					else std::cout << " -> " << (e->second.e!=etype::norm ? '1' : e->second.numrealchildren) << std::endl;
 					std::cout << "\tmakev? " << makev << std::endl;
 					std::cout << "\tare same? " << (eold==e) << std::endl;
@@ -733,7 +775,7 @@ struct hp {
 					ce->second.par = e;
 					e->second.numrealchildren++;
 #ifdef DEBUGPCV
-					state.print(std::cout);
+					//state.print(std::cout);
 #endif
 					break;
 				}

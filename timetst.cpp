@@ -419,17 +419,7 @@ logsp operator+(const logsp &a, const logsp &b) {
 }
 
 logsp &operator+=(logsp &a, const logsp &b) {
-	if (a.x==0.0) {
-		a = b;
-	} else if (b.x==0.0) {
-	} else if (a.y<b.y) {
-		a.x *= exp(a.y-b.y);
-		a.x += b.x;
-		a.y = b.y;
-	} else {
-		a.x += b.x*exp(b.y-a.y);
-	}
-	return a;
+	return (a = a+b);
 }
 
 logsp operator-(const logsp &a, const logsp &b) {
