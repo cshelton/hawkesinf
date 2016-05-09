@@ -638,6 +638,9 @@ struct hp {
 				//else std::cout << "\t\tstart=" << e->first.t << ' ' << e->first.label << std::endl;
 				for(e = state.events.lower_bound(levent);e!=state.events.end() 
 						&& e->first.label==l && e->first.t<ce->first.t;++e) {
+#ifndef PARENTCHANGEV
+					if (e->second.e==etype::virt) continue;
+#endif
 					//std::cout << "\t\tt=" << e->first.t << std::endl;
 					double wt = kernel.phi(l,ce->first.label,
 										ce->first.t-e->first.t);
@@ -647,26 +650,6 @@ struct hp {
 					}
 				}
 			}
-
-/*
-			for(auto e=state.events.begin();e!=state.events.end()
-						//&& e->first.t<ce->first.t
-						;++e) {
-				if (e->first.t>=ce->first.t) continue;
-#ifndef PARENTCHANGEV
-				if (e->second.e==etype::virt) continue;
-#endif
-				double wt = kernel.phi(e->first.label,ce->first.label,
-									ce->first.t-e->first.t);
-#ifdef PARENTCHANGEV
-				//if (isvirtable(e,ce)) wt /= state.kappa;
-#endif
-				if (wt>0.0) {
-					poss.emplace_back(e,wt);
-					wtsum += wt;
-				}
-			}
-*/
 
 			std::uniform_real_distribution<> samp(0,wtsum);
 			double s = samp(rand);
@@ -690,6 +673,7 @@ struct hp {
 					std::uniform_real_distribution<> samp(0,1.0);
 					std::vector<std::pair<int,double>> vetimes;
 					double mb = 1.0;
+					double wtch = 0.0;
 					if (e->second.e==etype::virt) {
 						mb *= exp(-kernel.intphi(e->first.label,0.0,
 									state.orig.tend-e->first.t));
@@ -702,6 +686,7 @@ struct hp {
 								delwt += kernel.phi(p.first,ce->first.label,
 										ce->first.t-p.second);
 						mb *= wtsum/(wtsum+delwt);
+						//wtch += delwt;
 					}
 					double ma = 1.0;
 					if (eold->second.e==etype::norm && eold->second.numrealchildren==1) {
@@ -720,6 +705,7 @@ struct hp {
 										delwt += wt;
 									}
 								ma *= wtsum/(wtsum+delwt);
+								//wtch -= delwt;
 							}
 						}
 					}
@@ -747,6 +733,7 @@ struct hp {
 					//if (makev) std::cout << "pre #child = " << eold->second.numrealchildren << std::endl;
 #endif
 					acc *= mb/ma;
+					// acc *= W/(W+wtch);
 					if (acc<1.0 && samp(rand)>=acc) {
 #ifdef DEBUGPCV
 						std::cout << "\treject" << std::endl;

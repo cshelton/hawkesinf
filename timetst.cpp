@@ -107,6 +107,7 @@ int runfortime(F f, double tsec) {
 	}
 	if (count==1)
 		cout << "warning: " << tsec << " produced only 1 iteration" << endl;
+	timer_delete(timerid);
 	return count;
 }
 
@@ -181,6 +182,20 @@ struct problem {
 #endif
 #ifdef POWK
 					1.0,-1.5,1
+#endif
+				};
+			case 12:
+				return {vector<double>{0.001,0.000001,0.000001,0.000001,0.000001},
+               vector<vector<double>>{vector<double>{0.0, 1.0, 1.0, 0.0, 0.0},
+                    vector<double>{0.0, 0.0, 1.0, 1.0, 0.0},
+                    vector<double>{0.0, 0.0, 0.0, 1.0, 1.0},
+                    vector<double>{0.0, 0.0, 0.0, 0.0, 1.0},
+				vector<double>{0.0, 0.0, 0.0, 0.0, 0.0}},
+#ifdef EXPK
+					1.0,0.5
+#endif
+#ifdef POWK
+					1.0,-2,1
 #endif
 				};
 			case 6:
@@ -311,6 +326,20 @@ struct problem {
 
 				evid.events[4].emplace(2.5);
 			break;
+			case 12:
+#ifdef EXPK
+				loaddata("p5data-corr.txt");
+#endif
+#ifdef POWK
+				loaddata("p5data2-corr.txt");
+#endif
+				evid.unobs[0].emplace_back(0,evid.tend);
+				evid.unobs[1].emplace_back(1,evid.tend);
+				evid.unobs[3].emplace_back(3,evid.tend);
+				evid.events[0].clear();
+				evid.events[1].clear();
+				evid.events[3].clear();
+			break;
 			case 5:
 #ifdef EXPK
 				loaddata("p5data.txt");
@@ -438,14 +467,9 @@ struct problem {
 		switch(pnum) {
 			case 0: case 1: case 2: case 3:
 					return tr.events[0].size();
-			case 4: case 5:
+			case 4: case 5: case 12:
 					return tr.events[3].size();
-			case 6:
-			case 7:
-			case 8:
-			case 9:
-			case 10:
-			case 11: {
+			case 6: case 7: case 8: case 9: case 10: case 11: {
 				int ret = 0;
 				for(int i=0;i<tr.events.size();i+=2)
 					ret += tr.events[i].size();
