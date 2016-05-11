@@ -14,7 +14,6 @@
 //#define DEBUG
 //#define DEBUGPCV
 #define RANDADV
-#define RESAMPPARENT
 #define PARENTCHANGEV 
 
 // A Hawkes process
@@ -87,9 +86,7 @@ struct hp {
 
 		auto addevent = [&events,&rand,T,this]
 				(int origi, int newi, double origt, double currt) {
-					//std::cout << "addevent: " << origi << ' ' << newi << ' ' << origt << ' ' << currt << std::endl;
 					eventtype e = sampleevent(origi,newi,origt,currt,rand);
-					//std::cout << "\tevent: " << e.i << ' ' << e.t << ' ' << e.origi << ' ' << e.origt << std::endl;
 					if (e.t < T) events.emplace(std::move(e));
 				};
 
@@ -168,9 +165,7 @@ struct hp {
 		while(!events.empty()) {
 			eventtype e = events.top();
 			events.pop();
-			//std::cout << "advance to " << e.t << " (" << e.origi << "): ";
 			auto dwt = kernel.advstate(e.t,state,isunobs,true);
-			//std::cout << dwt << std::endl;
 			logwt += dwt;
 			if (e.origi==-3) {
 				isunobs[e.i]=false;
@@ -182,9 +177,7 @@ struct hp {
 				continue;
 			}
 			if (e.origi==-1) {
-				//std::cout << "add event: ";
 				auto ww = kernel.eventrate(e.i,state,true);
-				//std::cout << ww << std::endl;
 				logwt += ww;
 			} else {
 				addevent(e.origi,e.i,e.origt,e.t);
@@ -195,9 +188,7 @@ struct hp {
 				addevent(e.i,i,e.t,e.t);
 		}
 		auto ddwt = kernel.advstate(T,state,isunobs,true);
-		//std::cout << "advance to " << T << " (end): " << ddwt << std::endl;
 		logwt += ddwt;
-		//std::cout << logwt << std::endl;
 		return {tr,logwt};
 	}
 
@@ -339,7 +330,6 @@ struct hp {
 			if (ce==p) {
 				ce=np;
 				if (ce==events.end()) ce = events.begin();
-				//advance(???,false);
 			}
 			
 		}
@@ -358,14 +348,6 @@ struct hp {
 		}
 
 		void makeeventvirt(eiterator &e) {
-/*
-			if (e->second.numrealchildren) {
-				//slow but just to see if this works...
-				for(eiterator ee = e;ee!=events.end();++ee)
-					if (ee->second.par==e && ee->second.e==etype::norm)
-						makeeventvirt(ee);
-			}
-*/
 			assert(e->second.numrealchildren==0);
 			assert(e->second.par->second.numrealchildren>0);
 			for(auto c : e->second.vchildren) delevent(c,false);
@@ -381,25 +363,13 @@ struct hp {
 		template<typename R>
 		bool advance(R &rand, bool initinc=true) {
 #ifdef RANDADV
-/*
-			// too slow!!
-			std::uniform_real_distribution<> samp(0,events.size());
-			int ni = (int)std::floor(samp(rand));
-			ce = events.begin();
-			std::advance(ce,ni);
-*/
 			std::uniform_int_distribution<> samp(0,elist.size()-1);
 			ce = elist[samp(rand)];
 #else
 			if (initinc) {
 				++ce;
-			//	if (ce==events.end()) ce=events.begin();
 			}
-			//while(ce->second.e==etype::virt) {
-			//	++ce;
-				if (ce==events.end()) ce=events.begin();
-			//}
-			//std::cout << ni << '/' << events.size() << std::endl;
+			if (ce==events.end()) ce=events.begin();
 #endif
 			return ce==events.begin();
 		}
@@ -465,14 +435,6 @@ struct hp {
 			};
 
 		auto resampvchildren1 = [&state,&sampvirt,&rand,this](eiterator ev) {
-/*
-			// resample vchildren events:
-			for(auto e : ev->second.vchildren)
-				state.delevent(e,false);
-			ev->second.vchildren.clear();
-			for(int l=0;l<state.orig.events.size();l++)
-				sampvirt(ev->first.t,ev->first.label,l,ev);
-*/
 			std::vector<std::pair<int,double>> vetimes;
 			for(auto &l : kernel.fromW(ev->first.label))
 				if (!state.orig.unobs[l].empty()) {
@@ -505,14 +467,13 @@ struct hp {
 				nfact *= n;
 			}
 			return ret/totalpr;
-		};
+			};
 				
 
 		auto averesampvchildrenrate = [&expratio,&state,&rangecmp,this](eiterator ev) {
 				double deln = -ev->second.vchildren.size();
 				double t0 = ev->first.t;
 				for(int l : kernel.fromW(ev->first.label)) {
-				//for(int l=0;l<state.orig.events.size();l++) {
 					auto &unobs = state.orig.unobs[l];
 					for(auto j = mystd::lower_bound(
 							unobs.begin(), unobs.end(),
@@ -546,13 +507,7 @@ struct hp {
 			double accpr = resampvchildrenrate(ev,vetimes);
 			std::uniform_real_distribution<> samp(0.0,1.0);
 			if (samp(rand)<=accpr) resampvchildren2(ev,vetimes);
-			};
-
-#ifdef DEBUG
-		std::cout << "----------------" << std::endl;
-		std::cout << "before step:" << std::endl;
-		state.print(std::cout);
-#endif
+		};
 
 		std::uniform_real_distribution<> sampunif(0,1);
 	
@@ -564,9 +519,6 @@ struct hp {
 			//wnorm *= resampvchildrenrate(ce,vetimes);
 			wnorm *= averesampvchildrenrate(ce);
 			std::uniform_real_distribution<> samp(0,wvirt+wnorm);
-#ifdef DEBUG
-			std::cout << "isvirt -> (" << wvirt << ',' << wnorm << ')' << std::endl;
-#endif
 			if (samp(rand)>=wvirt) {
 				state.makeeventnorm(ce);
 				auto vetimes = resampvchildren1(ce);
@@ -578,9 +530,6 @@ struct hp {
 				double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
 				double wvirt = unsampvchildrenrate(ce)*(state.kappa-1);
 				std::uniform_real_distribution<> samp(0,wvirt+wnorm);
-#ifdef DEBUG
-				std::cout << "isnorm -> (" << wvirt << ',' << wnorm << ')' << std::endl;
-#endif
 				if (samp(rand)<wvirt) {
 					state.makeeventvirt(ce);
 					return state.advance(rand);
@@ -588,20 +537,7 @@ struct hp {
 			}
 		}
 		
-#ifdef DEBUG
-		std::cout << "after virt:" << std::endl;
-		state.print(std::cout);
-#endif
-#ifdef DEBUG
-		std::cout << "before vchildren:" << std::endl;
-		state.print(std::cout);
-#endif
-
 		resampvchildren(ce);
-#ifdef DEBUG
-		std::cout << "after vchildren:" << std::endl;
-		state.print(std::cout);
-#endif
 
 #ifdef PARENTCHANGEV
 		auto isvirtable = [](eiterator e, eiterator ce) {
@@ -611,7 +547,6 @@ struct hp {
 		};
 #endif
 
-#ifdef RESAMPPARENT
 		// resample parent:
 		if (ce->second.e==etype::evid
 			|| ce->second.e==etype::norm) {
@@ -627,21 +562,14 @@ struct hp {
 					wtsum += wt;
 				}
 			}
-			//std::cout << "from l=" << ce->first.t << ' ' << ce->first.label << std::endl;
-			//for(auto &e : state.events) 
-			//	std::cout << '\t' << e.first.t << ' ' << e.first.label << std::endl;
 			for(auto &l : kernel.toW(ce->first.label)) {
-				//std::cout << "\tto l=" << l << std::endl;
 				typename gibbsstate::eventtime levent(-1,l);
 				e = state.events.lower_bound(levent);
-				//if (e==state.events.end()) std::cout << "\t\tend" << std::endl;
-				//else std::cout << "\t\tstart=" << e->first.t << ' ' << e->first.label << std::endl;
 				for(e = state.events.lower_bound(levent);e!=state.events.end() 
 						&& e->first.label==l && e->first.t<ce->first.t;++e) {
 #ifndef PARENTCHANGEV
 					if (e->second.e==etype::virt) continue;
 #endif
-					//std::cout << "\t\tt=" << e->first.t << std::endl;
 					double wt = kernel.phi(l,ce->first.label,
 										ce->first.t-e->first.t);
 					if (wt>0.0) {
@@ -659,120 +587,69 @@ struct hp {
 					eiterator &e = p.first;
 					eiterator &eold = ce->second.par;
 					if (e==eold) break;
-#ifdef DEBUGPCV
-			std::cout << "n par=" << poss.size() << std::endl;
-#endif
 #ifdef PARENTCHANGEV
 					double acc = 1.0;
-					if (isvirtable(e,ce)
-						) acc /= state.kappa;
-					if (isvirtable(eold,ce)
-						&& (e->second.e!=etype::virt || e->second.par != eold)
-						) acc *= state.kappa;
+					if (!isvirtable(e,ce))
+							acc *= state.kappa;
+					if (!isvirtable(eold,ce)
+								|| (e->second.e==etype::virt
+									&& e->second.par == eold))
+						acc /= state.kappa;
+
+					double u = 1.0;
+					double up = 1.0;
+					double Wden = wtsum;
+					int r2den = state.events.size();
+
 					bool makev = false;
 					std::uniform_real_distribution<> samp(0,1.0);
 					std::vector<std::pair<int,double>> vetimes;
-					double mb = 1.0;
-					double wtch = 0.0;
 					if (e->second.e==etype::virt) {
-						mb *= exp(-kernel.intphi(e->first.label,0.0,
+						up = exp(-kernel.intphi(e->first.label,0.0,
 									state.orig.tend-e->first.t));
-						//mb *= averesampvchildrenrate(e);
 						vetimes = resampvchildren1(e);
-						mb *= resampvchildrenrate(e,vetimes);
-						double delwt = 0.0;
+						r2den += vetimes.size();
 						for(auto &p : vetimes)
 							if (p.second<ce->first.t) 
-								delwt += kernel.phi(p.first,ce->first.label,
+								Wden += kernel.phi(p.first,ce->first.label,
 										ce->first.t-p.second);
-						mb *= wtsum/(wtsum+delwt);
-						//wtch += delwt;
 					}
-					double ma = 1.0;
-					if (eold->second.e==etype::norm && eold->second.numrealchildren==1) {
-						if (e->second.e==etype::virt && e->second.par==eold) {
-						} else {
-							if (samp(rand)>=1.0/state.kappa) {
-								makev = true;
-								ma *= exp(-kernel.intphi(eold->first.label,0.0,
-											state.orig.tend-eold->first.t));
-								ma /= unsampvchildrenrate(eold);
-								double delwt = 0.0;
-								for(auto c : eold->second.vchildren) 
-									if (c->first.t<ce->first.t) {
-										double wt = kernel.phi(c->first.label,ce->first.label,
-											ce->first.t-c->first.t);
-										delwt += wt;
-									}
-								ma *= wtsum/(wtsum+delwt);
-								//wtch -= delwt;
-							}
-						}
+					if (eold->second.e==etype::norm
+					 && eold->second.numrealchildren==1
+					 && (e->second.e!=etype::virt
+							|| e->second.par!=eold)
+					 && samp(rand)>=1.0/state.kappa) {
+						makev = true;
+						u = exp(-kernel.intphi(eold->first.label,0.0,
+									state.orig.tend-eold->first.t));
+						r2den -= eold->second.vchildren.size();
+						for(auto c : eold->second.vchildren) 
+							if (c->first.t<ce->first.t) {
+								Wden -= kernel.phi(c->first.label,ce->first.label,
+									ce->first.t-c->first.t);
 					}
-#ifdef DEBUGPCV
-					//state.print(std::cout);
-					std::cout << "par change: " << eold->first.t << " to " << e->first.t << std::endl;
-					std::cout << "\tce = " << ce->first.label << ',' << ce->first.t << std::endl;
-					if (eold->second.e==etype::virt)
-						std::cout << "\tV";
-					else if (eold->second.e==etype::evid)
-						std::cout << "\tE";
-					else std::cout << "\t" << (eold->second.e!=etype::norm ? '1' : eold->second.numrealchildren-1);
-					if (makev) std::cout << 'v';
-					else std::cout << '.';
-					if (e->second.e==etype::virt)
-						std::cout << " -> V" << std::endl;
-					else if (e->second.e==etype::evid)
-						std::cout << " -> E" << std::endl;
-					else std::cout << " -> " << (e->second.e!=etype::norm ? '1' : e->second.numrealchildren) << std::endl;
-					std::cout << "\tmakev? " << makev << std::endl;
-					std::cout << "\tare same? " << (eold==e) << std::endl;
-					std::cout << "\told parent of new? " << (e->second.par==eold) << std::endl;
-					std::cout << "\tnew parent of old? " << (e==eold->second.par) << std::endl;
-					std::cout << "\tacc = " << acc << '*' << mb << '/' << ma << " = " << acc*mb/ma << std::endl;
-					//if (makev) std::cout << "pre #child = " << eold->second.numrealchildren << std::endl;
-#endif
-					acc *= mb/ma;
-					// acc *= W/(W+wtch);
+					acc *= (up/u)*(Wsum/Wden)
+						*(state.events.size()/(double)r2den);
 					if (acc<1.0 && samp(rand)>=acc) {
-#ifdef DEBUGPCV
-						std::cout << "\treject" << std::endl;
-#endif
 						break; // reject change
 					}
-#ifdef DEBUGPCV
-					std::cout << "\taccept" << std::endl;
-#endif
-#endif
-#ifdef DEBUG
-					std::cout << "pick par=" << p.first->first.t << " (" << p.second << ")" << std::endl;
 #endif
 #ifdef PARENTCHANGEV
 					if (e->second.e==etype::virt) {
 						state.makeeventnorm(e);
-						//resampvchildren2(e,resampvchildren1(e));
 						resampvchildren2(e,vetimes);
 					}
 #endif
-					//if (makev) std::cout << "#child = " << eold->second.numrealchildren << std::endl;
 					eold->second.numrealchildren--;
 #ifdef PARENTCHANGEV
 					if (makev) state.makeeventvirt(eold);
 #endif
 					ce->second.par = e;
 					e->second.numrealchildren++;
-#ifdef DEBUGPCV
-					//state.print(std::cout);
-#endif
 					break;
 				}
 			}
 		}
-#ifdef DEBUG
-		std::cout << "after par:" << std::endl;
-		state.print(std::cout);
-#endif
-#endif
 		return state.advance(rand);
 	}
 };

@@ -111,6 +111,8 @@ int runfortime(F f, double tsec) {
 	return count;
 }
 
+
+
 #ifdef EXPK
 	#ifdef USESPARSE
 		static string kname("exp(s)");
@@ -131,73 +133,137 @@ int runfortime(F f, double tsec) {
 	#endif
 #endif
 
+template<typename K, typename WT>
+typename enable_if<is_same<typename K::basekernel,singleexpkernel>::value,hp<K>>::type
+makemultiK(vector<double> &&mus, WT &&ws,
+				double expa, double expb, 
+				double powa, double powb, double powg) {
+	return {std::move(mus), std::forward<WT>(ws), expa, expb};
+}
+
+template<typename K, typename WT>
+typename enable_if<is_same<typename K::basekernel,singlepowkernel>::value,hp<K>>::type
+makemultiK(vector<double> &&mus, WT &&ws,
+				double expa, double expb, 
+				double powa, double powb, double powg) {
+	return {std::move(mus), std::forward<WT>(ws), powa, powb, powg};
+}
+
+typename enable_if<!K::issparse,hp<K>>::type
+loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
+	ifstream f(fname.c_str());
+	if (!f.good()) throw runtime_error("failed to open "+fname);
+	std::vector<std::vector<double>> W(n,std::vector<double>(n,0));
+
+	std::vector<int> indegrees(n,0);
+	while(1) {
+		int i;
+		f >> i;
+		if (f.eof()) break;
+		string str;
+		getline(f,str);
+		istringstream ss(str);
+		int j;
+		vector<int> ind(1,i);
+		while(ss>>j) {
+			W[i][j] = linkalpha;
+			indegrees[j]++;
+		}
+		W[i][i] = selfalpha;
+	}
+#ifndef OLDGRAPHLOAD
+	for(int i=0;i<n;i++)
+		for(int j=0;j<n;j++) W[i][j] /= indegrees[j];
+#endif
+	return makemultiK<K>(vector<double>(n,mu),W,
+				1,1,
+				1,-2,1
+		);
+}
+
+typename enable_if<K::issparse,hp<K>>::type
+loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
+	ifstream f(fname.c_str());
+	if (!f.good()) throw runtime_error("failed to open "+fname);
+	std::vector<std::vector<std::pair<int,double>>> W(n);
+
+	std::vector<int> indegrees(n,0);
+	while(1) {
+		int i;
+		f >> i;
+		if (f.eof()) break;
+		string str;
+		getline(f,str);
+		istringstream ss(str);
+		int j;
+		vector<int> ind(1,i);
+		while(ss>>j) {
+			ind.emplace_back(j);
+			indegrees[j]++;
+		}
+		sort(ind.begin(),ind.end());
+		for(int j : ind)
+			W[i].emplace_back(j,j==i ? selfalpha : linkalpha);
+	}
+#ifndef OLDGRAPHLOAD
+	for(int i=0;i<n;i++)
+		for(auto &p : W[i]) p.second /= indegrees[p.first];
+#endif
+	return makemultK<K>(vector<double>(n,mu),W,
+				1,1,
+				1,-2,1
+		);
+}
+
+
+template<typename K>
 struct problem {
 	traj evid;
-	hprocess process;
+	hp<K> process;
 	int pnum;
 
-	static hprocess getproblemprocess(int num) {
+	static hp<K> getproblemprocess(int num) {
 		switch(num) {
-			case 1: return {vector<double>{0.1,0.0001},
+			case 1: return makemultiK<K>(vector<double>{0.1,0.0001},
 				vector<vector<double>>{vector<double>{1/4.0,2/4.0},
 					vector<double>{1/4.0,1/4.0}},
-#ifdef EXPK
-					1,1
-#endif
-#ifdef POWK
+					1,1,
 					1,-2,1
-#endif
-				};
-			case 2: return {vector<double>{0.0001,0.0001},
+				);
+			case 2: return makemultiK<K>(vector<double>{0.0001,0.0001},
 				vector<vector<double>>{vector<double>{3/9.0,1/9.0},
 					vector<double>{1/9.0,3/9.0}},
-#ifdef EXPK
-					1,0.5
-#endif
-#ifdef POWK
+					1,0.5,
 					1,-1.5,1
-#endif
-				};
-			case 3: return {vector<double>{0.01,0.000001,0.000001},
+				);
+			case 3: return makemultiK<K>(vector<double>{0.01,0.000001,0.000001},
 				vector<vector<double>>{vector<double>{0.0, 1.0, 0.0},
 						vector<double>{0.0, 0.0, 1.0},
 					vector<double>{0.0, 0.0, 0.0}},
-#ifdef EXPK
-					1.0,2
-#endif
-#ifdef POWK
+					1.0,2,
 					1,-2,1
-#endif
-				};
+				);
 			case 4:
 			case 5:
-				return {vector<double>{0.001,0.000001,0.000001,0.000001,0.000001},
+				return makemultiK<K>(vector<double>{0.001,0.000001,0.000001,0.000001,0.000001},
                vector<vector<double>>{vector<double>{0.0, 1.0, 1.0, 0.0, 0.0},
                     vector<double>{0.0, 0.0, 1.0, 1.0, 0.0},
                     vector<double>{0.0, 0.0, 0.0, 1.0, 1.0},
                     vector<double>{0.0, 0.0, 0.0, 0.0, 1.0},
 				vector<double>{0.0, 0.0, 0.0, 0.0, 0.0}},
-#ifdef EXPK
-					1.0,0.5
-#endif
-#ifdef POWK
+					1.0,0.5,
 					1.0,-1.5,1
-#endif
-				};
+				);
 			case 12:
-				return {vector<double>{0.001,0.000001,0.000001,0.000001,0.000001},
+				return makemultiK<K>(vector<double>{0.001,0.000001,0.000001,0.000001,0.000001},
                vector<vector<double>>{vector<double>{0.0, 1.0, 1.0, 0.0, 0.0},
                     vector<double>{0.0, 0.0, 1.0, 1.0, 0.0},
                     vector<double>{0.0, 0.0, 0.0, 1.0, 1.0},
                     vector<double>{0.0, 0.0, 0.0, 0.0, 1.0},
 				vector<double>{0.0, 0.0, 0.0, 0.0, 0.0}},
-#ifdef EXPK
-					1.0,0.5
-#endif
-#ifdef POWK
+					1.0,0.5,
 					1.0,-2,1
-#endif
-				};
+				);
 			case 6:
 #ifdef OLDGRAPHLOAD
 				return loadgraph(100,"graph100",0.05,0.25,0.125);
@@ -226,58 +292,6 @@ struct problem {
 		}
 	}
 
-	static hprocess loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
-		ifstream f(fname.c_str());
-		if (!f.good()) throw runtime_error("failed to open "+fname);
-#ifdef USESPARSE
-		std::vector<std::vector<std::pair<int,double>>> W(n);
-#else
-		std::vector<std::vector<double>> W(n,std::vector<double>(n,0));
-#endif
-
-		std::vector<int> indegrees(n,0);
-		while(1) {
-			int i;
-			f >> i;
-			if (f.eof()) break;
-			string str;
-			getline(f,str);
-			istringstream ss(str);
-			int j;
-			vector<int> ind(1,i);
-			while(ss>>j) {
-#ifdef USESPARSE
-				ind.emplace_back(j);
-#else
-				W[i][j] = linkalpha;
-#endif
-				indegrees[j]++;
-			}
-#ifdef USESPARSE
-			sort(ind.begin(),ind.end());
-			for(int j : ind)
-				W[i].emplace_back(j,j==i ? selfalpha : linkalpha);
-#else
-			W[i][i] = selfalpha;
-#endif
-		}
-#ifndef OLDGRAPHLOAD
-		for(int i=0;i<n;i++)
-#ifdef USESPARSE
-			for(auto &p : W[i]) p.second /= indegrees[p.first];
-#else
-			for(int j=0;j<n;j++) W[i][j] /= indegrees[j];
-#endif
-#endif
-		return {vector<double>(n,mu),W,
-#ifdef EXPK
-					1,1
-#endif
-#ifdef POWK
-					1,-2,1
-#endif
-			};
-	}
 
 	problem(int num) : pnum(num), process(getproblemprocess(num)) {
 		for(int i=0;i<process.kernel.baserates.size();i++) {
@@ -327,12 +341,7 @@ struct problem {
 				evid.events[4].emplace(2.5);
 			break;
 			case 12:
-#ifdef EXPK
-				loaddata("p5data-corr.txt");
-#endif
-#ifdef POWK
-				loaddata("p5data2-corr.txt");
-#endif
+				loaddata("p5data-corr.txt", "p5data2-corr.txt");
 				evid.unobs[0].emplace_back(0,evid.tend);
 				evid.unobs[1].emplace_back(1,evid.tend);
 				evid.unobs[3].emplace_back(3,evid.tend);
@@ -341,12 +350,7 @@ struct problem {
 				evid.events[3].clear();
 			break;
 			case 5:
-#ifdef EXPK
-				loaddata("p5data.txt");
-#endif
-#ifdef POWK
-				loaddata("p5data2.txt");
-#endif
+				loaddata("p5data.txt", "p5data2.txt");
 				evid.unobs[0].emplace_back(0,evid.tend);
 				evid.unobs[1].emplace_back(1,evid.tend);
 				evid.unobs[3].emplace_back(3,evid.tend);
@@ -356,69 +360,39 @@ struct problem {
 			break;
 			case 6:
 				{
-#ifdef EXPK
-				loaddata("graph100data.txt");
-#endif
-#ifdef POWK
-				loaddata("graph100data2.txt");
-#endif
+				loaddata("graph100data.txt","graph100data2.txt");
 				graphremove(0,10);
 				}
 			break;
 			case 7:
 				{
-#ifdef EXPK
-				loaddata("graph500data.txt");
-#endif
-#ifdef POWK
-				loaddata("graph500data2.txt");
-#endif
+				loaddata("graph500data.txt","graph500data2.txt");
 				graphremove(0,10);
 				}
 			break;
 			case 8:
 				{
-#ifdef EXPK
-				loaddata("graph500double.txt");
-#endif
-#ifdef POWK
-				loaddata("graph500double2.txt");
-#endif
+				loaddata("graph500double.txt","graph500double2.txt");
 				graphremove(0,10);
 				}
 			break;
 			case 9:
 				{
-#ifdef EXPK
-				loaddata("graph100-10.dat");
-#endif
-#ifdef POWK
-				loaddata("graph100-10-2.dat");
-#endif
+				loaddata("graph100-10.dat","graph100-10-2.dat");
 				graphremove(0,10);
 			
 				}
 			break;
 			case 10:
 				{
-#ifdef EXPK
-				loaddata("graph100-100.dat");
-#endif
-#ifdef POWK
-				loaddata("graph100-100-2.dat");
-#endif
+				loaddata("graph100-100.dat","graph100-100-2.dat");
 				graphremove(0,100);
 			
 				}
 			break;
 			case 11:
 				{
-#ifdef EXPK
-				loaddata("graph100-1000.dat");
-#endif
-#ifdef POWK
-				loaddata("graph100-1000-2.dat");
-#endif
+				loaddata("graph100-1000.dat","graph100-1000-2.dat");
 				graphremove(0,1000);
 			
 				}
@@ -436,7 +410,19 @@ struct problem {
 		}
 	}
 	
-	void loaddata(const string &fname) {
+	template<typename KK=K>
+	enable_if<is_same<typename KK::basekernel, singleexpkernel>::value>
+	loaddata(const string &fnameexp, const string &fnamepow) {
+		loaddatareal(fnameexp);
+	}
+
+	template<typename KK=K>
+	enable_if<is_same<typename KK::basekernel, singlepowkernel>::value>
+	loaddata(const string &fnameexp, const string &fnamepow) {
+		loaddatareal(fnamepow);
+	}
+
+	void loaddatareal(const string &fname) {
 		ifstream data(fname.c_str());
 		if (!data.good())
 			throw runtime_error("failed to open "+fname);
@@ -448,8 +434,6 @@ struct problem {
 			if (data.eof()) break;
 			if (ii!=me+1) 
 				throw runtime_error("bad file format: "+fname);
-			//evid.events.emplace_back();
-			//evid.unobs.emplace_back();
 			for(int j=0;j<ne;j++) {
 				double t;
 				data >> t;
@@ -526,10 +510,10 @@ logsp operator/(double a, const logsp &b) {
 //------
 
 
-template<typename RAND>
+template<typename RAND, typename K>
 struct gsampler {
 	const problem &p;
-	hprocess::gibbsstate s;
+	hp<K>::gibbsstate s;
 	int bin,itt;
 	RAND &r;
 	double v;
@@ -663,6 +647,8 @@ int main(int argc, char **argv) {
 	std::random_device rd;
      std::mt19937_64 rand(rd());
      //std::ranlux48 rand(rd());
+
+	std::cout << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
 
 
 	int pnum = argc>1 ? atoi(argv[1]) : 1;

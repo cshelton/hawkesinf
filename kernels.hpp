@@ -102,9 +102,11 @@ template<typename SK>
 struct multikernel {
 	std::vector<double> baserates;
 	double baseratesum;
+	static bool issparse = false;
 	// W[i][j] is the multiplier for events from i generating new events in j
 	std::vector<std::vector<double>> W,Wtrans;
 	std::vector<double> Wsum;
+	typedef basekernel SK;
 	SK skernel;
 
 	template<typename... T>
@@ -265,6 +267,7 @@ template<typename SK>
 struct sparsemultikernel {
 	std::vector<double> baserates;
 	double baseratesum;
+	static bool issparse = true;
 	// W[i][j] is the multiplier for events from i generating new events in j
 	std::vector<std::vector<std::pair<int,double>>> W;
 	std::vector<std::vector<std::pair<int,double>>> Wtrans;
