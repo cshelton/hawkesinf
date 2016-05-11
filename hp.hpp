@@ -548,8 +548,7 @@ struct hp {
 #endif
 
 		// resample parent:
-		if (ce->second.e==etype::evid
-			|| ce->second.e==etype::norm) {
+		if (ce->second.e==etype::evid || ce->second.e==etype::norm) {
 			std::vector<std::pair<eiterator,double>> poss;
 			double wtsum = 0.0;
 			eiterator e;
@@ -624,11 +623,10 @@ struct hp {
 									state.orig.tend-eold->first.t));
 						r2den -= eold->second.vchildren.size();
 						for(auto c : eold->second.vchildren) 
-							if (c->first.t<ce->first.t) {
-								Wden -= kernel.phi(c->first.label,ce->first.label,
-									ce->first.t-c->first.t);
+							if (c->first.t<ce->first.t)
+								Wden -= kernel.phi(c->first.label,ce->first.label, ce->first.t-c->first.t);
 					}
-					acc *= (up/u)*(Wsum/Wden)
+					acc *= (up/u)*(wtsum/Wden)
 						*(state.events.size()/(double)r2den);
 					if (acc<1.0 && samp(rand)>=acc) {
 						break; // reject change

@@ -16,16 +16,15 @@
 #include <sstream>
 #include <algorithm>
 #include <fenv.h>
-
-//#define EXPK
-#define POWK
-
-#define USESPARSE
+#include <iomanip>
+#include <boost/program_options.hpp>
 
 //#define OLDGRAPHLOAD
 //using namespace std::string_literals;
 
 using namespace std;
+namespace po = boost::program_options;
+
 
 template<typename T>
 using initl = std::initializer_list<T>;
@@ -113,25 +112,6 @@ int runfortime(F f, double tsec) {
 
 
 
-#ifdef EXPK
-	#ifdef USESPARSE
-		static string kname("exp(s)");
-		using hprocess = hp<sparsemultikernel<singleexpkernel>>;
-	#else
-		static string kname("exp");
-		using hprocess = hp<multikernel<singleexpkernel>>;
-	#endif
-#endif
-
-#ifdef POWK
-	#ifdef USESPARSE
-		static string kname("pow(s)");
-		using hprocess = hp<sparsemultikernel<singlepowerkernel>>;
-	#else
-		static string kname("pow");
-		using hprocess = hp<multikernel<singlepowerkernel>>;
-	#endif
-#endif
 
 template<typename K, typename WT>
 typename enable_if<is_same<typename K::basekernel,singleexpkernel>::value,hp<K>>::type
@@ -142,13 +122,14 @@ makemultiK(vector<double> &&mus, WT &&ws,
 }
 
 template<typename K, typename WT>
-typename enable_if<is_same<typename K::basekernel,singlepowkernel>::value,hp<K>>::type
+typename enable_if<is_same<typename K::basekernel,singlepowerkernel>::value,hp<K>>::type
 makemultiK(vector<double> &&mus, WT &&ws,
 				double expa, double expb, 
 				double powa, double powb, double powg) {
 	return {std::move(mus), std::forward<WT>(ws), powa, powb, powg};
 }
 
+template<typename K>
 typename enable_if<!K::issparse,hp<K>>::type
 loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
 	ifstream f(fname.c_str());
@@ -181,6 +162,7 @@ loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
 		);
 }
 
+template<typename K>
 typename enable_if<K::issparse,hp<K>>::type
 loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
 	ifstream f(fname.c_str());
@@ -209,12 +191,23 @@ loadgraph(int n,string fname, double mu, double selfalpha, double linkalpha) {
 	for(int i=0;i<n;i++)
 		for(auto &p : W[i]) p.second /= indegrees[p.first];
 #endif
-	return makemultK<K>(vector<double>(n,mu),W,
+	return makemultiK<K>(vector<double>(n,mu),W,
 				1,1,
 				1,-2,1
 		);
 }
 
+template<typename K,typename T>
+typename enable_if<is_same<typename K::basekernel, singleexpkernel>::value,T>::type
+pickarg(T &&fnameexp, T &&fnamepow) {
+	return fnameexp;
+}
+
+template<typename K,typename T>
+typename enable_if<is_same<typename K::basekernel, singlepowerkernel>::value,T>::type
+pickarg(T &&fnameexp, T &&fnamepow) {
+	return fnamepow;
+}
 
 template<typename K>
 struct problem {
@@ -266,28 +259,28 @@ struct problem {
 				);
 			case 6:
 #ifdef OLDGRAPHLOAD
-				return loadgraph(100,"graph100",0.05,0.25,0.125);
+				return loadgraph<K>(100,"graph100",0.05,0.25,0.125);
 #else
-				return loadgraph(100,"graph100",0.1,0.5,0.125);
+				return loadgraph<K>(100,"graph100",0.1,0.5,0.125);
 #endif
 			case 7:
 #ifdef OLDGRAPHLOAD
-				return loadgraph(500,"graph500",0.05,0.125,0.0625);
+				return loadgraph<K>(500,"graph500",0.05,0.125,0.0625);
 #else
-				return loadgraph(500,"graph500",0.1,0.5,0.125);
+				return loadgraph<K>(500,"graph500",0.1,0.5,0.125);
 #endif
 			case 8:
 #ifdef OLDGRAPHLOAD
-				return loadgraph(500,"graph500",0.1,0.125,0.0625);
+				return loadgraph<K>(500,"graph500",0.1,0.125,0.0625);
 #else
-				return loadgraph(500,"graph500",0.2,0.5,0.25);
+				return loadgraph<K>(500,"graph500",0.2,0.5,0.25);
 #endif
 			case 9:
-				return loadgraph(100,"graph100",0.1,0.5,0.125);
+				return loadgraph<K>(100,"graph100",0.1,0.5,0.125);
 			case 10:
-				return loadgraph(100,"graph100",0.1,0.5,0.125);
+				return loadgraph<K>(100,"graph100",0.1,0.5,0.125);
 			case 11:
-				return loadgraph(100,"graph100",0.1,0.5,0.125);
+				return loadgraph<K>(100,"graph100",0.1,0.5,0.125);
 
 		}
 	}
@@ -410,19 +403,9 @@ struct problem {
 		}
 	}
 	
-	template<typename KK=K>
-	enable_if<is_same<typename KK::basekernel, singleexpkernel>::value>
-	loaddata(const string &fnameexp, const string &fnamepow) {
-		loaddatareal(fnameexp);
-	}
 
-	template<typename KK=K>
-	enable_if<is_same<typename KK::basekernel, singlepowkernel>::value>
-	loaddata(const string &fnameexp, const string &fnamepow) {
-		loaddatareal(fnamepow);
-	}
-
-	void loaddatareal(const string &fname) {
+	void loaddata(const string &fnameexp, const string &fnamepow) {
+		const string &fname = pickarg<K>(fnameexp,fnamepow);
 		ifstream data(fname.c_str());
 		if (!data.good())
 			throw runtime_error("failed to open "+fname);
@@ -512,14 +495,14 @@ logsp operator/(double a, const logsp &b) {
 
 template<typename RAND, typename K>
 struct gsampler {
-	const problem &p;
-	hp<K>::gibbsstate s;
+	const problem<K> &p;
+	typename hp<K>::gibbsstate s;
 	int bin,itt;
 	RAND &r;
 	double v;
 	int c;
 
-	gsampler(const problem &pr, double kappa,
+	gsampler(const problem<K> &pr, double kappa,
 				int burnin, RAND &rand) :
 			p(pr),
 			s(pr.process.initgibbs(p.evid,kappa,rand)),
@@ -553,23 +536,23 @@ struct gsampler {
 	}
 };
 
-template<typename RAND>
-auto makegsampler(const problem &pr, double kappa,
+template<typename RAND,typename K>
+auto makegsampler(const problem<K> &pr, double kappa,
 			int burnin, RAND &rand) {
-	return gsampler<RAND>(pr,kappa,burnin,rand);
+	return gsampler<RAND,K>(pr,kappa,burnin,rand);
 }
 
 //------
 
-template<typename RAND>
+template<typename RAND, typename K>
 struct issampler {
-	const problem &p;
+	const problem<K> &p;
 	RAND &r;
 	logsp v;
 	logsp wt;
 	logsp wt2;
 
-	issampler(const problem &pr, RAND &rand) :
+	issampler(const problem<K> &pr, RAND &rand) :
 			p(pr),v(0),wt(0),wt2(0),r(rand) {
 	}
 
@@ -598,9 +581,9 @@ struct issampler {
 	}
 };
 
-template<typename RAND>
-auto makeissampler(const problem &pr, RAND &rand) {
-	return issampler<RAND>(pr,rand);
+template<typename RAND, typename K>
+auto makeissampler(const problem<K> &pr, RAND &rand) {
+	return issampler<RAND,K>(pr,rand);
 }
 
 //------
@@ -616,8 +599,21 @@ tuple<logsp,double,int,logsp> runsampler(SAMPLER s, double time) {
 	return tuple<logsp,double,int,logsp>(s.ttl(),s.nsamp(),c,s.ttlwt());
 }
 
+template<typename K>
+string kname();
+
+template<>
+string kname<multikernel<singleexpkernel>>() { return {"exp"}; }
+template<>
+string kname<multikernel<singlepowerkernel>>() { return {"pow"}; }
+template<>
+string kname<sparsemultikernel<singleexpkernel>>() { return {"exp(s)"}; }
+template<>
+string kname<sparsemultikernel<singlepowerkernel>>() { return {"pow(s)"}; }
+
+template<typename K>
 string streamname(int pnum, int burnin, int kappa) {
-	string stem = string("data/var-")+kname+"-"+to_string(pnum)+"-"+to_string(burnin)+"-"+to_string(kappa);
+	string stem = string("data/var-")+kname<K>()+"-"+to_string(pnum)+"-"+to_string(burnin)+"-"+to_string(kappa);
 	string ext = ".dat";
 	struct stat buffer;
 	if (stat((stem+ext).c_str(),&buffer)!=0) return stem+ext;
@@ -628,9 +624,9 @@ string streamname(int pnum, int burnin, int kappa) {
 	throw runtime_error("failed to create output file");
 }
 
-template<typename R>
+template<typename K, typename R>
 void sampleproblem(int pnum, double T, R &rand) {
-	problem pr(pnum);
+	problem<K> pr(pnum);
 	auto tr = pr.process.sample(pr.netypes(),T,rand);
 	cout << T << endl;
 	for(int i=0;i<tr.events.size();i++) {
@@ -640,37 +636,34 @@ void sampleproblem(int pnum, double T, R &rand) {
 	}
 }
 
-int main(int argc, char **argv) {
+struct params {
+	int pnum;
+	double maxt;
+	double mint;
+	double kappa;
+	int burnin;
+	int nrep;
+	int npts;
+	int only;
+	int usesparse;
+	int kernel;
+	bool sampleonly;
+};
 
-//	feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+template<typename K, typename R>
+void runit(const params &p, R &rand) {
 
-	std::random_device rd;
-     std::mt19937_64 rand(rd());
-     //std::ranlux48 rand(rd());
+	string sname = streamname<K>(p.pnum,p.burnin,p.kappa);
 
-	std::cout << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
-
-
-	int pnum = argc>1 ? atoi(argv[1]) : 1;
-	double maxt = argc>2 ? atof(argv[2]) : 10;
-	double mint = argc>3 ? atof(argv[3]) : 0.01;
-	double kappa = argc>4 ? atof(argv[4]) : 2;
-	int burnin = argc>5 ? atoi(argv[5]) : 1000;
-	int nrep = argc>6 ? atoi(argv[6]) : 100;
-	int npts = argc>7 ? atoi(argv[7]) : 16;
-	int only = argc>8 ? atoi(argv[8]) : 0;
-
-	if (pnum<0) {
-		sampleproblem(-pnum,maxt,rand);
-		exit(0);
+	if (p.sampleonly) {
+		sampleproblem<K>(p.pnum,p.maxt,rand);
+		return;
 	}
 
-	string sname = streamname(pnum,burnin,kappa);
+	problem<K> pr(p.pnum);
 
-	problem pr(pnum);
-
-	auto makesamplerA = [&pr,kappa,burnin,&rand]() {
-				return makegsampler(pr,kappa,burnin,rand); };
+	auto makesamplerA = [&pr,p,&rand]() {
+				return makegsampler(pr,p.kappa,p.burnin,rand); };
 	const char *snameA = "gibbs";
 
 	auto makesamplerB = [&pr,&rand]() {
@@ -678,13 +671,13 @@ int main(int argc, char **argv) {
 	const char *snameB = "IS";
 
 	Gnuplot plot;
-	plot.set_title(to_string(pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(burnin)+" "+to_string(kappa)+" (itt #0/"+to_string(nrep)+")  "+sname);
+	plot.set_title(to_string(p.pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(p.burnin)+" "+to_string(p.kappa)+" (itt #0/"+to_string(p.nrep)+")  "+sname);
 	plot.set_style("linespoints");
 
 	vector<double> times;
-	double lmint = log(mint);
-	double lmaxt = log(maxt);
-	double dt = (lmaxt-lmint)/npts;
+	double lmint = log(p.mint);
+	double lmaxt = log(p.maxt);
+	double dt = (lmaxt-lmint)/p.npts;
 	for(double l=lmint; l<lmaxt+dt/2;l+=dt) {
 		times.emplace_back(exp(l));
 	}
@@ -698,13 +691,13 @@ int main(int argc, char **argv) {
 		wts[k] = vector<logsp>(times.size(),0.0);
 		sums[k] = vector<logsp>(times.size(),0.0);
 	}
-	for(int i=0;i<nrep;i++) {
+	for(int i=0;i<p.nrep;i++) {
 		for(int j=0;j<times.size();j++) {
 			logsp ttl(0);
 			double nsamp;
 			logsp ttlwt(0);
 			int c;
-			if (!only || only==1) {
+			if (!p.only || p.only==1) {
 				std::tie(ttl,nsamp,c,ttlwt) = runsampler(makesamplerA(),times[j]);
 				double v = ttl/ttlwt;
 				valsum[0][j] += v;
@@ -714,7 +707,7 @@ int main(int argc, char **argv) {
 				sums[0][j] += ttl;
 				wts[0][j] += ttlwt;
 			}
-			if (!only || only==2) {
+			if (!p.only || p.only==2) {
 				std::tie(ttl,nsamp,c,ttlwt) = runsampler(makesamplerB(),times[j]);
 				double v = ttl/ttlwt;
 				valsum[1][j] += v;
@@ -749,15 +742,16 @@ int main(int argc, char **argv) {
 				valvar[k][j] = (valsum2[k][j] - 2*trueest[k]*valsum[k][j])/(i+1) + trueest[k]*trueest[k];
 
 		plot.reset_plot();
-		plot.set_title(to_string(pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(burnin)+" "+to_string(kappa)+" (itt #"+to_string(i+1)+"/"+to_string(nrep)+")  "+sname);
+		plot.set_title(to_string(p.pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(p.burnin)+" "+to_string(p.kappa)+" (itt #"+to_string(i+1)+"/"+to_string(p.nrep)+")  "+sname);
 		plot.set_xlogscale(10);
 		plot.set_ylogscale(10);
 		plot.plot_xys(times,valvar);
 
 		{
 			ofstream outdata(sname.c_str(),std::ios::trunc);
+			outdata << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
 			outdata << "# repnum maxrepnum" << endl;
-			outdata << i+1 << ' ' << nrep << endl;
+			outdata << i+1 << ' ' << p.nrep << endl;
 			outdata << "# trueest_gibbs trueest_isamp" << endl;
 			for(int k=0;k<2;k++)
 				outdata << ' ' << trueest[k];
@@ -785,5 +779,68 @@ int main(int argc, char **argv) {
 			}
 		}
 	}
+}
+
+int main(int argc, char **argv) {
+
+	long rseed;
+	params p;
+
+	po::options_description odesc("options");
+	odesc.add_options()
+		("help","write help message")
+		("problemnum,pnum,p",po::value<int>(&p.pnum)->default_value(1),
+				"problem number")
+		("maxtime,maxt",po::value<double>(&p.maxt)->default_value(10.0),
+				"maximum runtime (sec)")
+		("mintime,mint",po::value<double>(&p.mint)->default_value(0.01),
+				"minimum runtime (sec)")
+		("numpts,npts",po::value<int>(&p.npts)->default_value(16),
+				"number of runtime points")
+		("kappa,k",po::value<double>(&p.kappa)->default_value(2),
+				"Gibbs sampler kappa")
+		("burnin",po::value<int>(&p.burnin)->default_value(1000),
+				"number burn-in iterations")
+		("numrep,nrep",po::value<int>(&p.nrep)->default_value(100),
+				"number of experiment repetitions")
+		("alg,only",po::value<int>(&p.only)->default_value(0),
+				"algorithm to be tested (0=both, 1=Gibbs, 2=IS)")
+		("kernel",po::value<int>(&p.kernel)->default_value(1),
+				"kernel type (1=exp, 2=pow)")
+		("sparse",po::value<int>(&p.usesparse)->default_value(true),
+				"sparse kernel? (1=yes, 0=no)")
+		("randseed",po::value<long>(&rseed)->default_value(-1),
+				"random seed (<0 => randomly selected")
+		("sampleonly",po::value<bool>(&p.sampleonly)->default_value(false),
+				"true if only to sample trajectory")
+		; 
+
+	po::variables_map omap;
+	po::store(po::parse_command_line(argc, argv, odesc),omap);
+	po::notify(omap);
+	if (omap.count("help")) {
+		cout << odesc << endl;
+		return 1;
+	}
+//	feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+
+
+	std::random_device rd;
+     std::mt19937_64 rand(rseed<0 ? rd() : rseed);
+     //std::ranlux48 rand(rd());
+
+	std::cout << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
+
+	switch(p.kernel) {
+		case 1: if (p.usesparse) runit<sparsemultikernel<singleexpkernel>>(p,rand);
+			else runit<multikernel<singleexpkernel>>(p,rand);
+		break;
+		case 2: if (p.usesparse) runit<sparsemultikernel<singlepowerkernel>>(p,rand);
+			else runit<multikernel<singlepowerkernel>>(p,rand);
+		break;
+		default:
+			cout << "illegal kernel parameters" << endl;
+	}
 	waitforkey();
 }
+

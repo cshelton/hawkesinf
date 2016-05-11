@@ -13,7 +13,7 @@ struct singleexpkernel {
 	constexpr double intphi(double t0, double t1) const {
 		return alpha*exp(-beta*t0)*(-std::expm1(-beta*(t1-t0)))/beta;
 	}
-	//constexpr double invintphi(double s, double t0) const {
+	//constexpr double invintphi(double s, double t0) const
 	double invintphi(double s, double t0) const {
 		const double lim = alpha/beta/std::exp(beta*t0);
 		if (s<lim) {
@@ -63,7 +63,7 @@ struct singlepowerkernel {
 	constexpr double intphi(double t0, double t1) const {
 		return alpha*(std::pow(t1+gamma,beta+1)-std::pow(t0+gamma,beta+1))/(beta+1);
 	}
-	//constexpr double invintphi(double s, double t0) const {
+	//constexpr double invintphi(double s, double t0) const
 	double invintphi(double s, double t0) const {
 		// it seems like this should be doable in a more
 		// stable fashion...
@@ -102,11 +102,11 @@ template<typename SK>
 struct multikernel {
 	std::vector<double> baserates;
 	double baseratesum;
-	static bool issparse = false;
+	static const bool issparse = false;
 	// W[i][j] is the multiplier for events from i generating new events in j
 	std::vector<std::vector<double>> W,Wtrans;
 	std::vector<double> Wsum;
-	typedef basekernel SK;
+	typedef SK basekernel;
 	SK skernel;
 
 	template<typename... T>
@@ -267,11 +267,12 @@ template<typename SK>
 struct sparsemultikernel {
 	std::vector<double> baserates;
 	double baseratesum;
-	static bool issparse = true;
+	static const bool issparse = true;
 	// W[i][j] is the multiplier for events from i generating new events in j
 	std::vector<std::vector<std::pair<int,double>>> W;
 	std::vector<std::vector<std::pair<int,double>>> Wtrans;
 	std::vector<double> Wsum;
+	typedef SK basekernel;
 	SK skernel;
 
 	template<typename... T>
