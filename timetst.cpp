@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <string>
+#include <cmath>
 #include <sys/stat.h>
 #include <fstream>
 #include <sstream>
@@ -263,6 +264,7 @@ struct problem {
 #else
 				return loadgraph<K>(100,"graph100",0.1,0.5,0.125);
 #endif
+			case 14:
 			case 7:
 #ifdef OLDGRAPHLOAD
 				return loadgraph<K>(500,"graph500",0.05,0.125,0.0625);
@@ -275,6 +277,7 @@ struct problem {
 #else
 				return loadgraph<K>(500,"graph500",0.2,0.5,0.25);
 #endif
+			case 13:
 			case 9:
 				return loadgraph<K>(100,"graph100",0.1,0.5,0.125);
 			case 10:
@@ -357,6 +360,7 @@ struct problem {
 				graphremove(0,10);
 				}
 			break;
+			case 14:
 			case 7:
 				{
 				loaddata("graph500data.txt","graph500data2.txt");
@@ -369,6 +373,7 @@ struct problem {
 				graphremove(0,10);
 				}
 			break;
+			case 13:
 			case 9:
 				{
 				loaddata("graph100-10.dat","graph100-10-2.dat");
@@ -442,6 +447,28 @@ struct problem {
 					ret += tr.events[i].size();
 				return ret;
 				}
+			case 13: case 14: {
+				int ret = 0;
+				for(int i=0;i<tr.events.size();i+=2) {
+					vector<decltype(tr.events[i].begin())> oi,oe;
+					for(int j : process.kernel.fromW(i)) {
+						if (j==i) continue;
+						oi.push_back(tr.events[j].begin());
+						oe.push_back(tr.events[j].end());
+					}
+					bool tocount = false;
+					for(auto &e : tr.events[i]) {
+						for(int j=0;j<oi.size();j++)
+							while(oi[j]!=oe[j] && *(oi[j]) < e) {
+								oi[j]++;
+								tocount = false;
+							}
+						if (tocount) ret++;
+						tocount = true;
+					}
+				}
+				return ret;
+			}
 			default:
 				return 0;
 		}
@@ -497,10 +524,9 @@ template<typename RAND, typename K>
 struct gsampler {
 	const problem<K> &p;
 	typename hp<K>::gibbsstate s;
-	int bin,itt;
+	long long bin,itt,c;
 	RAND &r;
 	double v;
-	int c;
 
 	gsampler(const problem<K> &pr, double kappa,
 				int burnin, RAND &rand) :
@@ -648,6 +674,9 @@ struct params {
 	int usesparse;
 	int kernel;
 	bool sampleonly;
+	double value;
+	bool plot;
+	bool outdata;
 };
 
 template<typename K, typename R>
@@ -671,13 +700,15 @@ void runit(const params &p, R &rand) {
 	const char *snameB = "IS";
 
 	Gnuplot plot;
-	plot.set_title(to_string(p.pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(p.burnin)+" "+to_string(p.kappa)+" (itt #0/"+to_string(p.nrep)+")  "+sname);
-	plot.set_style("linespoints");
+	if (p.plot) {
+		plot.set_title(to_string(p.pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(p.burnin)+" "+to_string(p.kappa)+" (itt #0/"+to_string(p.nrep)+")  "+sname);
+		plot.set_style("linespoints");
+	}
 
 	vector<double> times;
 	double lmint = log(p.mint);
-	double lmaxt = log(p.maxt);
-	double dt = (lmaxt-lmint)/p.npts;
+	double lmaxt = p.npts==1 ? lmint*2 : log(p.maxt);
+	double dt = p.npts==1 ? lmint*5 : (lmaxt-lmint)/(p.npts-1);
 	for(double l=lmint; l<lmaxt+dt/2;l+=dt) {
 		times.emplace_back(exp(l));
 	}
@@ -737,22 +768,29 @@ void runit(const params &p, R &rand) {
 		cout << " (" << trueest[0] << ") ";
 		//trueest[1] = valsum[1].back()/(i+1);
 		cout << " (" << trueest[1] << ")" << endl;
+		if (!std::isnan(p.value))
+			trueest[0] = trueest[1] = p.value;
 		for(int k=0;k<2;k++) 
 			for(int j=0;j<times.size();j++)
 				valvar[k][j] = (valsum2[k][j] - 2*trueest[k]*valsum[k][j])/(i+1) + trueest[k]*trueest[k];
 
-		plot.reset_plot();
-		plot.set_title(to_string(p.pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(p.burnin)+" "+to_string(p.kappa)+" (itt #"+to_string(i+1)+"/"+to_string(p.nrep)+")  "+sname);
-		plot.set_xlogscale(10);
-		plot.set_ylogscale(10);
-		plot.plot_xys(times,valvar);
+		if (p.plot) {
+			plot.reset_plot();
+			plot.set_title(to_string(p.pnum)+" -- "+string(snameA)+"/"+snameB+": "+to_string(p.burnin)+" "+to_string(p.kappa)+" (itt #"+to_string(i+1)+"/"+to_string(p.nrep)+")  "+sname);
+			plot.set_xlogscale(10);
+			plot.set_ylogscale(10);
+			plot.plot_xys(times,valvar);
+		}
 
-		{
+		if (p.outdata) {
 			ofstream outdata(sname.c_str(),std::ios::trunc);
 			outdata << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
 			outdata << "# repnum maxrepnum" << endl;
 			outdata << i+1 << ' ' << p.nrep << endl;
-			outdata << "# trueest_gibbs trueest_isamp" << endl;
+			if (std::isnan(p.value))
+				outdata << "# trueest_gibbs trueest_isamp" << endl;
+			else 
+				outdata << "# true_gibbs true_isamp" << endl;
 			for(int k=0;k<2;k++)
 				outdata << ' ' << trueest[k];
 			outdata << endl;
@@ -788,38 +826,71 @@ int main(int argc, char **argv) {
 
 	po::options_description odesc("options");
 	odesc.add_options()
-		("help","write help message")
-		("problemnum,pnum,p",po::value<int>(&p.pnum)->default_value(1),
+		("help","write help message and exit")
+		("show","write parameters and exit")
+		("problemnum,p",po::value<int>(&p.pnum)->default_value(1),
 				"problem number")
-		("maxtime,maxt",po::value<double>(&p.maxt)->default_value(10.0),
+		("maxtime,T",po::value<double>(&p.maxt)->default_value(10.0),
 				"maximum runtime (sec)")
-		("mintime,mint",po::value<double>(&p.mint)->default_value(0.01),
+		("mintime,t",po::value<double>(&p.mint)->default_value(0.01),
 				"minimum runtime (sec)")
-		("numpts,npts",po::value<int>(&p.npts)->default_value(16),
+		("numpts,n",po::value<int>(&p.npts)->default_value(16),
 				"number of runtime points")
 		("kappa,k",po::value<double>(&p.kappa)->default_value(2),
 				"Gibbs sampler kappa")
-		("burnin",po::value<int>(&p.burnin)->default_value(1000),
+		("burnin,b",po::value<int>(&p.burnin)->default_value(1000),
 				"number burn-in iterations")
-		("numrep,nrep",po::value<int>(&p.nrep)->default_value(100),
+		("numrep,r",po::value<int>(&p.nrep)->default_value(100),
 				"number of experiment repetitions")
-		("alg,only",po::value<int>(&p.only)->default_value(0),
+		("alg,a",po::value<int>(&p.only)->default_value(0),
 				"algorithm to be tested (0=both, 1=Gibbs, 2=IS)")
 		("kernel",po::value<int>(&p.kernel)->default_value(1),
 				"kernel type (1=exp, 2=pow)")
-		("sparse",po::value<int>(&p.usesparse)->default_value(true),
+		("sparse,s",po::value<int>(&p.usesparse)->default_value(true),
 				"sparse kernel? (1=yes, 0=no)")
 		("randseed",po::value<long>(&rseed)->default_value(-1),
-				"random seed (<0 => randomly selected")
+				"random seed (<0 => randomly selected)")
 		("sampleonly",po::value<bool>(&p.sampleonly)->default_value(false),
 				"true if only to sample trajectory")
+		("config",po::value<string>()->default_value(string("")),
+				"configuration file name")
+		("truevalue",po::value<double>(&p.value)->default_value(std::numeric_limits<double>::quiet_NaN()),
+				"true value of calculation")
+		("nopause","do not wait for keystroke when finished")
+		("noplot","do not plot with gnuplot")
+		("nowritedata","do not write to data log")
 		; 
 
 	po::variables_map omap;
 	po::store(po::parse_command_line(argc, argv, odesc),omap);
+	string cfname = omap["config"].as<string>();
+	if (cfname!="") {
+		cout << "parsing " << cfname << endl;
+		po::store(po::parse_config_file<char>(cfname.c_str(),odesc),omap);
+	} else {
+		cout << "cfname = " << cfname << endl;
+	}
 	po::notify(omap);
+	p.plot = !omap.count("noplot");
+	p.outdata = !omap.count("nowritedata");
 	if (omap.count("help")) {
 		cout << odesc << endl;
+		return 1;
+	}
+	if (omap.count("show")) {
+		cout << "pnum=" << p.pnum << endl
+			<< "maxt=" << p.maxt << endl
+			<< "mint=" << p.mint << endl
+			<< "npts=" << p.npts << endl
+			<< "kappa=" << p.kappa << endl
+			<< "burnin=" << p.burnin << endl
+			<< "nrep=" << p.nrep << endl
+			<< "only=" << p.only << endl
+			<< "kernel=" << p.kernel << endl
+			<< "sparse=" << p.usesparse << endl
+			<< "randseed=" << rseed << endl
+			<< "sampleonly=" << p.sampleonly << endl
+			<< "config=" << cfname << endl;
 		return 1;
 	}
 //	feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
@@ -841,6 +912,6 @@ int main(int argc, char **argv) {
 		default:
 			cout << "illegal kernel parameters" << endl;
 	}
-	waitforkey();
+	if (!omap.count("nopause")) waitforkey();
 }
 
