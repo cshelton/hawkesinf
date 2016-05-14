@@ -712,6 +712,9 @@ void runit(const params &p, R &rand) {
 	for(double l=lmint; l<lmaxt+dt/2;l+=dt) {
 		times.emplace_back(exp(l));
 	}
+	double tt = 0;
+	for(auto t : times) tt += t*2;
+	cout << "total time estimated at " << tt*p.nrep << " seconds" << endl;
 	array<vector<double>,2> valsum,valsum2,nsamps,cs;
 	array<vector<logsp>,2> wts,sums;
 	for(int k=0;k<2;k++) {
