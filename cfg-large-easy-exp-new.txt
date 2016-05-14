@@ -1,0 +1,9 @@
+problemnum=13
+maxtime=100
+mintime=0.1
+numpts=16
+kappa=2
+burnin=1000
+numrep=200
+kernel=1
+truevalue=40.71190796316234639
