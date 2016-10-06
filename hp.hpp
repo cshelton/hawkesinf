@@ -93,6 +93,7 @@ struct hp {
 		traj ret;
 		ret.tend = T;
 		for(int i=0;i<neventtypes;i++) ret.events.emplace_back();
+		for(int i=0;i<neventtypes;i++) ret.unobs.emplace_back();
 		for(int i=0;i<neventtypes;i++) 
 			addevent(i,i,std::numeric_limits<double>::infinity(),0);
 		while(!events.empty()) {
@@ -375,9 +376,9 @@ struct hp {
 		}
 	};
 
-	template<typename R>
-	gibbsstate initgibbs(traj tr, double kappa, R &rand) const {
-		return {tr,kappa};
+	template<typename T, typename R>
+	gibbsstate initgibbs(T &&tr, double kappa, R &rand) const {
+		return {std::forward<T>(tr),kappa};
 	}
 
 	template<typename R>

@@ -4,14 +4,20 @@
 #include <cmath>
 #include <vector>
 #include "missingstd.hpp"
+#include <iostream>
 
 struct singleexpkernel {
 	double alpha,beta; // phi = alpha*exp(-beta*t)
 	constexpr singleexpkernel(double a, double b) : alpha(a), beta(b) {}
 
 	constexpr double phi(double t) const { return alpha*exp(-beta*t); }
+	constexpr double logphi(double t) const {
+		return alpha==1.0 ? -beta*t : log(alpha)-beta*t;
+	}
 	constexpr double intphi(double t0, double t1) const {
-		return alpha*exp(-beta*t0)*(-std::expm1(-beta*(t1-t0)))/beta;
+		return t0==0 && alpha==1 ?
+			-std::expm1(-beta*t1)/beta
+			: alpha*exp(-beta*t0)*(-std::expm1(-beta*(t1-t0)))/beta;
 	}
 	//constexpr double invintphi(double s, double t0) const
 	double invintphi(double s, double t0) const {
@@ -26,6 +32,36 @@ struct singleexpkernel {
 		return s >= lim
 			? std::numeric_limits<double>::infinity()
 			: t0-std::log1p(-s/lim)/beta;
+	}
+
+	void save(std::ostream &os) const {
+		os << alpha << ' ' << beta;
+	}
+
+	void load(std::istream &is) {
+		is >> alpha >> beta;
+	}
+
+	std::vector<double> paramtovec() const {
+		return {alpha,beta};
+	}
+
+	void vectoparam(std::vector<double> &v) {
+		alpha = v[0];
+		beta = v[1];
+	}
+
+	double getparam(int i) const { 
+		switch(i) {
+			case 0: return alpha;
+			default: return beta;
+		}
+	}
+	void setparam(int i, double v) {
+		switch(i) {
+			case 0: alpha = v; break;
+			default: beta = v;
+		}
 	}
 
 	struct state {
@@ -59,6 +95,19 @@ struct singlepowerkernel {
 	constexpr double phi(double t) const {
 		return alpha*std::pow(t+gamma,beta);
 	}
+	constexpr double logphi(double t) const {
+		return log(alpha)+beta*log(t+gamma);
+	}
+
+
+	void save(std::ostream &os) const {
+		os << alpha << ' ' << beta << ' ' << gamma;
+	}
+
+	void load(std::istream &is) {
+		is >> alpha >> beta >> gamma;
+	}
+
 
 	constexpr double intphi(double t0, double t1) const {
 		return alpha*(std::pow(t1+gamma,beta+1)-std::pow(t0+gamma,beta+1))/(beta+1);
@@ -71,6 +120,31 @@ struct singlepowerkernel {
 					1.0/(beta+1))
 				-gamma;
 		return ret>t0 ? ret : std::numeric_limits<double>::infinity();
+	}
+
+	std::vector<double> paramtovec() const {
+		return {alpha,beta,gamma};
+	}
+
+	void vectoparam(std::vector<double> &v) {
+		alpha = v[0];
+		beta = v[1];
+		gamma = v[2];
+	}
+
+	double getparam(int i) const { 
+		switch(i) {
+			case 0: return alpha;
+			case 1: return beta;
+			default: return gamma;
+		}
+	}
+	void setparam(int i, double v) {
+		switch(i) {
+			case 0: alpha = v; break;
+			case 1: beta = v; break;
+			default: gamma = v;
+		}
 	}
 
 	struct state {
@@ -109,12 +183,48 @@ struct multikernel {
 	typedef SK basekernel;
 	SK skernel;
 
+	void save(std::ostream &os) const {
+		skernel.save(os);
+		os << std::endl;
+		os << std::endl;
+		os << baserates.size() << std::endl;
+		for(auto &r : baserates)
+			os << r << ' ';
+		os << std::endl;
+		os << std::endl;
+		for(auto &r : W) {
+			for(auto &v : r)
+				os << v << ' ';
+			os << std::endl;
+		}
+	}
+
+	void load(std::istream &is) {
+		skernel.load(is);
+		int numl;
+		is >> numl;
+		baserates.resize(numl);
+		for(int i=0;i<numl;i++)
+			is >> baserates[i];
+		W.resize(numl);
+		for(int i=0;i<numl;i++) {
+			W[i].resize(numl);
+			for(int j=0;j<numl;j++)
+				is >> W[i][j];
+		}
+		setWstats();
+	}
+
 	template<typename... T>
 	multikernel(std::vector<double> mus,
 			std::vector<std::vector<double>> ws,
 			T &&...skparams) 
 		: baserates(std::move(mus)), W(std::move(ws)), Wsum(W.size(),0),
 			Wtrans(W.size(),std::vector<double>(W.size(),0)), skernel(std::forward<T>(skparams)...) {
+		setWstats();
+	}
+
+	void setWstats() {
 		baseratesum = 0;
 		for(int i=0;i<W.size();i++) {
 			double s = 0;
