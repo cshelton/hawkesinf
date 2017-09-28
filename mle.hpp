@@ -90,8 +90,8 @@ double fnmin(F &f, double x, double res=1e-3) {
 // for the moment, only for 1-parameter base kernel!!
 template<typename K>
 void mleopt(multikernel<K> &k, const std::vector<mless> &ss,
-		int nitt=1, double minW =1e-3, double minbeta=1e-3,
-		double lambda=0.0) {
+		int nitt=1, double minW =1e-3, double maxW = 1e3, double minbeta=1e-3,
+		double lambda=0.0, bool clamp=false) {
 	//k.skernel.alpha = 1.0;
 	//k.skernel.beta = fnmin(negllh,k.skernel.beta,minbeta);
 	k.skernel.setparam(0,1.0);
@@ -115,7 +115,8 @@ void mleopt(multikernel<K> &k, const std::vector<mless> &ss,
 		double sum = 0.0;
 		double ret = 0.0;
 		for(auto &dt : ss[i].Ti[l]) {
-			sum += k.skernel.intphi(0.0,dt.first);
+			auto v = k.skernel.intphi(0.0,dt.first);
+			sum += v; //k.skernel.intphi(0.0,dt.first);
 			if (dt.second>=0)
 				ret += k.skernel.logphi(dt.second);
 		}
@@ -156,7 +157,10 @@ void mleopt(multikernel<K> &k, const std::vector<mless> &ss,
 			int Nllp = 0;
 			for(auto &ssi : ss)
 				Nllp += ssi.N[l][lp];
-			k.W[l][lp] = std::max(minW,Nllp/den);
+			if (clamp && k.W[l][lp]==0)
+				k.W[l][lp] = Nllp/den;
+			else
+				k.W[l][lp] = std::min(maxW,std::max(minW,Nllp/den));
 			if (k.W[l][lp]>minW*1000)
 				std::cout << '(' << l << ',' << lp << ") = " << k.W[l][lp] << std::endl;
 		}
@@ -170,7 +174,7 @@ void mleopt(multikernel<K> &k, const std::vector<mless> &ss,
 			TT += ssi.TT;
 			Nzero += ssi.Nzero[l];
 		}
-		k.baserates[l] = std::max(minW,(double)Nzero/TT);
+		k.baserates[l] = std::min(maxW,std::max(minW,(double)Nzero/TT));
 		std::cout << k.baserates[l] << ' ';
 	}
 	std::cout << std::endl;
@@ -205,8 +209,10 @@ struct mleparams {
 	int nskip=0;
 	double kappa=2;
 	double minW=0.001;
+	double maxW=1000;
 	double minbeta=0.001;
 	int nthread=4;
+	int clampWitt=0;
 };
 
 template<typename K,typename R>
@@ -236,7 +242,8 @@ void mle(hp<multikernel<K>> &p, const std::vector<traj> &data, R &rand,
 		}
 		for(auto &f : futs)
 			f.wait();
-		mleopt(p.kernel,ss,1,params.minW,params.minbeta,params.lambda);
+		mleopt(p.kernel,ss,1,params.minW,params.maxW,params.minbeta,params.lambda,
+				step<params.clampWitt);
 		/*
 		for(auto &s : states) {
 			for(int i=0;i<(step ? params.nburnin : params.nburnin0);i++)
@@ -248,7 +255,7 @@ void mle(hp<multikernel<K>> &p, const std::vector<traj> &data, R &rand,
 				ss.addstate<K>(s);
 			}
 		}
-		mleopt(p.kernel,ss,1,params.minW,params.minbeta,params.lambda);
+		mleopt(p.kernel,ss,1,params.minW,params.maxW,params.minbeta,params.lambda);
 		*/
 		std::cout << "end iteration " << step << std::endl;
 	}

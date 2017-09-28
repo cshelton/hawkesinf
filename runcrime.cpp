@@ -6,6 +6,7 @@
 #include <random>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <boost/program_options.hpp>
 
 using namespace std;
@@ -20,6 +21,8 @@ int main(int argc, char **argv) {
 	double initbeta = 1.0/90.0;
 	double mumult = 0.1;
 	double maxinitW = initbeta/2;
+	double maxT = std::numeric_limits<double>::infinity();
+	double minT = 0.0;
 	int allinitW = 1; // actually boolean
 	unsigned int initseed = 0;
 	string outputfilename = "crimedata/testout.txt";
@@ -28,6 +31,8 @@ int main(int argc, char **argv) {
 	odesc.add_options()
 		("help","write help message and exit")
 		("show","write parameters and exit")
+		("maxT",po::value<double>(&maxT)->default_value(std::numeric_limits<double>::infinity()),"max ending time")
+		("minT",po::value<double>(&minT)->default_value(0.0),"min starting time")
 		("nhidden",po::value<int>(&extralabels)->default_value(5),
 			"number hidden labels")
 		("nem",po::value<int>(&mlep.nsteps)->default_value(100),
@@ -44,6 +49,8 @@ int main(int argc, char **argv) {
 			"kappa")
 		("minW",po::value<double>(&mlep.minW)->default_value(1e-6),
 			"min value for any element of W")
+		("maxW",po::value<double>(&mlep.maxW)->default_value(10),
+			"min value for any element of W")
 		("minbeta",po::value<double>(&mlep.minbeta)->default_value(1e-4),
 			"min value for beta")
 		("nthread",po::value<int>(&mlep.nthread)->default_value(8),
@@ -58,6 +65,8 @@ int main(int argc, char **argv) {
 			"maximum initial W")
 		("allinitW",po::value<int>(&allinitW)->default_value(false),
 			"whether to set non-zero Ws between observed labels")
+		("clampWitt",po::value<int>(&mlep.clampWitt)->default_value(0),
+			"if not allinitW, number of iterations to keep clamped")
 		("out",po::value<string>(&outputfilename)->default_value(string("crimedata/testout.txt")),
 			"output model filename")
 		("config",po::value<string>()->default_value(string("")),"configuration filename")
@@ -78,12 +87,15 @@ int main(int argc, char **argv) {
 	if (omap.count("show")) {
 		cout << "nhidden=" << extralabels << endl
 			<< "nem=" << mlep.nsteps << endl
+			<< "maxT=" << maxT << endl
+			<< "minT=" << minT << endl
 			<< "nsamp=" << mlep.nsamp << endl
 			<< "nburnin0=" << mlep.nburnin0 << endl
 			<< "nburnin=" << mlep.nburnin << endl
 			<< "nskip=" << mlep.nskip << endl
 			<< "kappa=" << mlep.kappa << endl
 			<< "minW=" << mlep.minW << endl
+			<< "maxW=" << mlep.maxW << endl
 			<< "minbeta=" << mlep.minbeta << endl
 			<< "nthread=" << mlep.nthread << endl
 			<< "lambda =" << mlep.lambda << endl
@@ -91,6 +103,7 @@ int main(int argc, char **argv) {
 			<< "mumult=" << mumult << endl
 			<< "maxinitW=" << maxinitW << endl
 			<< "allinitW=" << allinitW << endl
+			<< "clampWitt=" << mlep.clampWitt << endl
 			<< "out=" << outputfilename << endl
 			<< "config=" << cfname << endl;
 		return 1;
@@ -109,18 +122,25 @@ int main(int argc, char **argv) {
 	data.push_back(traj{});
 	double T;
 	cdata >> T;
+	T = std::min(T,maxT);
+	T -= minT;
 	data.back().tend = T;
 	data.back().events.resize(nlabels);
 	data.back().unobs.resize(nlabels);
 	vector<int> nevents(nlabels,0);
+	int nev = 0;
 	while(true) {
 		int l;
 		double t;
 		cdata >> l >> t;
-		if (cdata.eof()) break;
+		t -= minT;
+		if (cdata.eof() || t>T) break;
+		if (t<0.0) continue;
 		data.back().events[l].insert(t);
 		nevents[l]++;
+		nev++;
 	}
+	std::cout << "read " << nev << " events" << std::endl;
 	vector<double> initmu;
 	int maxc = *(max_element(nevents.begin(),nevents.end()));
 	for(auto &c : nevents) initmu.push_back(c/T * mumult);

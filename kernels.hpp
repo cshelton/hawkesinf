@@ -207,8 +207,11 @@ struct multikernel {
 		for(int i=0;i<numl;i++)
 			is >> baserates[i];
 		W.resize(numl);
+		Wtrans.resize(numl);
+		Wsum.resize(numl);
 		for(int i=0;i<numl;i++) {
 			W[i].resize(numl);
+			Wtrans[i].resize(numl);
 			for(int j=0;j<numl;j++)
 				is >> W[i][j];
 		}
