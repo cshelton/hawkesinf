@@ -1,0 +1,14 @@
+nhidden=0
+nem=1
+nsamp=50
+nburnin0=10
+nburnin=0
+nskip=0
+kappa=2
+minW=1e-06
+minbeta=0.0001
+nthread=8
+initbeta=0.0111111
+mumult=0.1
+maxinitW=0.00555556
+allinitW=1
