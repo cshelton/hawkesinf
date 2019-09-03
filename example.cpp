@@ -30,7 +30,7 @@ std::vector<traj> getdata() {
 		ret.emplace_back(process.sample(3,20,rd));
 			// 3 labels (consistent with process above), 20 time units long
 		removewindow(ret.back(),1,5.0,15.0);
-			// on each trajectory, erase the events from t=5 to 5=15
+			// on each trajectory, erase the events from t=5 to t=15
 			// for label 1 (and mark those as unobserved)
 			// could be multiple windows, could be different for each traj
 	}
