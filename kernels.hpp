@@ -161,7 +161,7 @@ struct singlepowerkernel {
 		s.t = t;
 		return ret;
 	}
-	double eventtostate(state &s) const {
+	void eventtostate(state &s) const {
 		s.ts.emplace_back(s.t);
 	}
 	double eventrate(const state &s, bool uselog=true) const {

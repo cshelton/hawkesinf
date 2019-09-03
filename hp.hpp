@@ -9,6 +9,7 @@
 #include <tuple>
 #include <map>
 #include <cassert>
+#include <iostream>
 #include "missingstd.hpp"
 
 //#define DEBUG

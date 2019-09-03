@@ -12,6 +12,9 @@ runcrime: runcrime.cpp traj.hpp hp.hpp kernels.hpp mle.hpp missingstd.hpp
 
 tstcrime: tstcrime.cpp traj.hpp hp.hpp kernels.hpp mle.hpp missingstd.hpp tstpred.hpp
 	$(CC) $(OPT) -o tstcrime tstcrime.cpp -L/usr/local/lib -lpthread -lboost_program_options -lrt
+
+example: example.cpp traj.hpp hp.hpp kernels.hpp mle.hpp
+	$(CC) $(OPT) -o example example.cpp -L/usr/local/lib -lpthread -lrt
 	
 clean:
-	rm timetst runcrime tstcrime
+	rm timetst runcrime tstcrime example
