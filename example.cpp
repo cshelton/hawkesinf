@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
 	optparams.nburnin0 = 1000; // burn in first EM iteration
 	optparams.nburnin = 100; // burn in after that
 	optparams.nsamp = 100; // 100 samples per example
-	optparams.nsteps = 100; // run for 20 EM iterations
+	optparams.nsteps = 100; // run for 100 EM iterations
 			// see mle.cpp for other options (search for "struct mleparams")
 	mle(process,data,rand,optparams);
 
