@@ -515,6 +515,7 @@ struct hp {
 	
 		// resample virtualness
 		if (ce->second.e==etype::virt) {
+			/*
 			double wvirt = (state.kappa-1);
 			double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
 			//auto vetimes = resampvchildren1(ce);
@@ -522,6 +523,10 @@ struct hp {
 			wnorm *= averesampvchildrenrate(ce);
 			std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 			if (samp(rand)>=wvirt) {
+			*/
+			double r = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t))/(state.kappa-1)*averesampvchildrenrate(ce)
+			std::uniform_real_distribution<> samp(0.0,1.0);
+			if (samp(rand)<r) {
 				state.makeeventnorm(ce);
 				auto vetimes = resampvchildren1(ce);
 				resampvchildren2(ce,resampvchildren1(ce));
@@ -529,10 +534,15 @@ struct hp {
 				return state.advance(rand);
 		} else if (ce->second.e==etype::norm) {
 			if (ce->second.numrealchildren==0) {
+				/*
 				double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
 				double wvirt = unsampvchildrenrate(ce)*(state.kappa-1);
 				std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 				if (samp(rand)<wvirt) {
+				*/
+				double r = (state.kappa-1)/exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t))*unsampvchildrenrate(ce);
+				std::uniform_real_distribution<> samp(0.0,1.0);
+				if (samp(rand)<r) {
 					state.makeeventvirt(ce);
 					return state.advance(rand);
 				}
@@ -607,7 +617,7 @@ struct hp {
 					std::vector<std::pair<int,double>> vetimes;
 					if (e->second.e==etype::virt) {
 						up = exp(-kernel.intphi(e->first.label,0.0,
-									state.orig.tend-e->first.t));
+									state.orig.tend-e->first.t))/(state.kappa-1);
 						vetimes = resampvchildren1(e);
 						r2den += vetimes.size();
 						for(auto &p : vetimes)
@@ -622,7 +632,7 @@ struct hp {
 					 && samp(rand)>=1.0/state.kappa) {
 						makev = true;
 						u = exp(-kernel.intphi(eold->first.label,0.0,
-									state.orig.tend-eold->first.t));
+									state.orig.tend-eold->first.t))/(state.kappa-1);
 						r2den -= eold->second.vchildren.size();
 						for(auto c : eold->second.vchildren) 
 							if (c->first.t<ce->first.t)

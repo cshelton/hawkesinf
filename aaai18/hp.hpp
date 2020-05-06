@@ -516,6 +516,7 @@ struct hp {
 		if (ce->second.e==etype::virt) {
 			double wvirt = (state.kappa-1);
 			double wnorm = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t));
+			wvirt *= wnorm;
 			//auto vetimes = resampvchildren1(ce);
 			//wnorm *= resampvchildrenrate(ce,vetimes);
 			wnorm *= averesampvchildrenrate(ce);

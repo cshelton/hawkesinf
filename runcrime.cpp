@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
 			"starting beta value")
 		("mumult",po::value<double>(&mumult)->default_value(0.1),
 			"multiplier for starting mu value (multiplied by emperial rate for label)") 
-		("maxinitW",po::value<double>(&mumult)->default_value(initbeta/2.0),
+		("maxinitW",po::value<double>(&maxinitW)->default_value(initbeta/2.0),
 			"maximum initial W")
 		("allinitW",po::value<int>(&allinitW)->default_value(false),
 			"whether to set non-zero Ws between observed labels")
