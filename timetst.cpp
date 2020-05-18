@@ -286,6 +286,7 @@ struct problem {
 				return loadgraph<K>(100,"graph100",0.1,0.5,0.125);
 
 		}
+		throw std::runtime_error("invalid problem number");
 	}
 
 

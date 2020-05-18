@@ -26,7 +26,7 @@ std::vector<traj> getdata() {
 	std::mt19937 rand(rd());
 
 	std::vector<traj> ret;
-	for (int i=0;i<100;i++) { // sample 10 trajectories
+	for (int i=0;i<100;i++) { // sample 100 trajectories
 		ret.emplace_back(process.sample(3,20,rd));
 			// 3 labels (consistent with process above), 20 time units long
 		removewindow(ret.back(),1,5.0,15.0);

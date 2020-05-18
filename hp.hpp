@@ -524,7 +524,7 @@ struct hp {
 			std::uniform_real_distribution<> samp(0,wvirt+wnorm);
 			if (samp(rand)>=wvirt) {
 			*/
-			double r = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t))/(state.kappa-1)*averesampvchildrenrate(ce)
+			double r = exp(-kernel.intphi(ce->first.label,0.0,state.orig.tend-ce->first.t))/(state.kappa-1)*averesampvchildrenrate(ce);
 			std::uniform_real_distribution<> samp(0.0,1.0);
 			if (samp(rand)<r) {
 				state.makeeventnorm(ce);

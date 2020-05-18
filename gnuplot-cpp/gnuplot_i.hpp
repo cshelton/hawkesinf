@@ -16,6 +16,8 @@
 /// 3. some member functions added, corrections for Win32 and Linux 
 ///    compatibility 
 ///    by M. Burgis (10/03/08)
+/// 4. some modifications to allow for compilation on C++11
+///    by C. Shelton (05/15/20)
 ///
 /// Requirements:
 /// * gnuplot has to be installed (http://www.gnuplot.info/download.html)
@@ -1018,7 +1020,13 @@ Gnuplot::~Gnuplot()
 #elif defined(unix) || defined(__unix) || defined(__unix__) || defined(__APPLE__)
     if (pclose(gnucmd) == -1)
 #endif
-        throw GnuplotException("Problem closing communication to gnuplot");
+	    // cshelton:
+	    // throwing in destructors is "icky"
+	    // see https://akrzemi1.wordpress.com/2011/09/21/destructors-that-throw/
+	    // we'll just silently stop
+        //throw GnuplotException("Problem closing communication to gnuplot");
+    {}
+
 }
 
 
@@ -1924,20 +1932,30 @@ bool Gnuplot::file_exists(const std::string &filename, int mode)
 }
 
 bool Gnuplot::file_available(const std::string &filename){
-    std::ostringstream except;
+    //std::ostringstream except;
     if( Gnuplot::file_exists(filename,0) ) // check existence
     {
         if( !(Gnuplot::file_exists(filename,4)) ){// check read permission
-            except << "No read permission for File \"" << filename << "\"";
-            throw GnuplotException( except.str() );
+		   // cshelton
+		   // below caused deallocation problems on 
+		   // c++11 (gcc 9.3.1).  ostringstream::str returns a temp
+		   // which doesn't seem to get a deep copied
+            //except << "No read permission for File \"" << filename << "\"";
+            //throw GnuplotException( except.str() );
+		  //  fix:
+		  throw GnuplotException("No read permission for File \""+filename+"\"");
             return false;
         }
     }
     else{
-        except << "File \"" << filename << "\" does not exist";
-        throw GnuplotException( except.str() );
+	    // cshelton: see above
+        //except << "File \"" << filename << "\" does not exist";
+        //throw GnuplotException( except.str() );
+	   throw GnuplotException("File \""+filename+"\" does not exist");
         return false;
     }
+    // cshelton: missing before!
+    return true;
 }
 
 
