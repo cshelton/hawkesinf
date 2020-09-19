@@ -9,11 +9,10 @@
 #include <future>
 
 struct mless {
-
 	mless(int nlabels) : nl(nlabels), Nplus(0),
 		Nl(nlabels,0), Nzero(nlabels,0),
 		N(nlabels,std::vector<int>(nlabels,0)),
-		R(0), TT(0), Ti(nlabels,std::vector<std::pair<double,double>>(0)) {}
+		R(0), TT(0), Ti(nlabels,std::pair<double,double>(0.0,0.0)) {}
 	std::size_t nl;
 	// total number of events that have non-root parents
 	int Nplus;
@@ -29,20 +28,22 @@ struct mless {
 	double TT;
 	// for each label, for each event, T - t_i and t_{par} - t_i 
 	//  (last is negative if no parent)
-	std::vector<std::vector<std::pair<double,double>>> Ti;
+	std::vector<std::pair<double,double>> Ti;
+	
 
 	template<typename K>
-	void addstate(const typename hp<multikernel<K>>::gibbsstate &samp) {
+	void addstate(const typename hp<multikernel<K>>::gibbsstate &samp, const multikernel<K> &k) {
 		using etype= typename hp<multikernel<K>>::gibbsstate::etype;
 		double T = samp.curr.tend;
 		TT += T;
 		for(auto &e : samp.events) {
+			
 			if (e.second.e==etype::root || e.second.e==etype::virt) 
 				continue;
-			Ti[e.first.label].emplace_back(T-e.first.t,
-								e.second.par->second.e!=etype::root
-								? e.first.t-e.second.par->first.t
-								: -1.0);
+
+			Ti[e.first.label].first += k.skernel.intphi(0.0, T-e.first.t);
+			Ti[e.first.label].second += e.second.par->second.e!=etype::root ? e.first.t-e.second.par->first.t : -1.0; 
+
 			if (e.second.par->second.e==etype::root) {
 				Nzero[e.first.label]++;
 			} else {
@@ -112,15 +113,7 @@ void mleopt(multikernel<K> &k, const std::vector<mless> &ss,
 	*/
 
 	auto oneval = [&ss,&k](int i, int l) {
-		double sum = 0.0;
-		double ret = 0.0;
-		for(auto &dt : ss[i].Ti[l]) {
-			auto v = k.skernel.intphi(0.0,dt.first);
-			sum += v; //k.skernel.intphi(0.0,dt.first);
-			if (dt.second>=0)
-				ret += k.skernel.logphi(dt.second);
-		}
-		return std::pair<double,double>(sum,ret);
+		return ss[i].Ti[l];
 	};
 
 
@@ -145,14 +138,15 @@ void mleopt(multikernel<K> &k, const std::vector<mless> &ss,
 		return -ret;
 	};
 
-	k.skernel.setparam(1,fnmin(negllh,k.skernel.getparam(1),minbeta));
+	double bestbeta = fnmin(negllh,k.skernel.getparam(1),minbeta);
+	k.skernel.setparam(1, bestbeta);
 
 	std::cout << "W = " << std::endl;
 	for(int l=0;l<ss[0].nl;l++) {
+		//std::cout << l << std::endl;
 		double den = lambda;
 		for(auto &ssi : ss)
-			for(auto &dt : ssi.Ti[l])
-				den += k.skernel.intphi(0.0,dt.first);
+			den += ssi.Ti[l].first;
 		for(int lp=0;lp<ss[0].nl;lp++) {
 			int Nllp = 0;
 			for(auto &ssi : ss)
@@ -168,17 +162,17 @@ void mleopt(multikernel<K> &k, const std::vector<mless> &ss,
 	}
 	std::cout << "mu = " << std::endl;
 	for(int l=0;l<ss[0].nl;l++) {
-		int TT = 0;
+		size_t TT = 0;
 		int Nzero = 0;
 		for(auto &ssi : ss) {
 			TT += ssi.TT;
 			Nzero += ssi.Nzero[l];
 		}
+		//std::cout << "for mu " << l << " N = " << Nzero << " and T = " << TT << std::endl;
 		k.baserates[l] = std::min(maxW,std::max(minW,(double)Nzero/TT));
 		std::cout << k.baserates[l] << ' ';
 	}
-	std::cout << std::endl;
-	std::cout << "end beta = " << k.skernel.beta << std::endl;
+	//std::cout << std::endl << "end beta = " << k.skernel.beta << std::endl;
 	k.setWstats();
 }
 
@@ -194,10 +188,74 @@ void mlestep(const hp<multikernel<K>> &p,
 			p.gibbsstep(s,rand);
 			for(int j=0;j<nskip;j++)
 				p.gibbsstep(s,rand);
-			ss.addstate<K>(s);
+			ss.addstate<K>(s, p.kernel);
 		}
 	}
 }
+
+template<typename K>
+double llh(hp<multikernel<K>> &p, const traj &data) {
+	//for every event in data
+	//take the log of the mu of that event
+	std::vector<std::set<double>::const_iterator> it(data.events.size());
+	int cnt;
+	for(int i=0;i<data.events.size();++i) {
+		it.at(i) = data.events.at(i).begin();
+		cnt += data.events.at(i).size();
+	}
+	std::vector<std::pair<int,double>> order;
+	order.reserve(cnt);
+
+	double T = data.tend;
+	//std::cout << T << std::endl;
+
+	int ndone = 0;
+	double musum = 0, phisum = 0, mutsum = 0, phitsum = 0;
+	double oldphisum, newphisum;
+	while(ndone<it.size()) {
+		//find the soonest event
+		int l=-1;
+		double t=std::numeric_limits<double>::infinity();
+		for(int j=0;j<data.events.size();++j) {
+			if(it.at(j) != data.events.at(j).end() 
+				and *(it.at(j)) < t) {
+				l = j;
+				t = *it.at(j);
+			}
+		}
+		if(++it.at(l) == data.events.at(l).end()) ++ndone;
+
+		musum += log(p.kernel.mu(l));	
+		
+		newphisum = p.kernel.phi(order.back().first, l, order.back().second-t);
+		phisum += newphisum;
+		oldphisum = newphisum;
+/*
+		for(const std::pair<int,double>& e : order){
+			phisum += p.kernel.phi(e.first, l, e.second-t);
+		}
+*/
+
+		phitsum += p.kernel.intphi(l, 0, T - t);
+
+		order.emplace_back(l,t);
+
+		if(order.size() % 10000 == 0) {
+			std::cout << "seen " << order.size() << " events" << std::endl
+				<< "musum " << musum 
+				<< "\tphisum " << phisum
+				<< "\tphitsum " << phitsum << std::endl;
+		}	
+	}
+
+	for(int i=0;i<data.events.size();++i) {
+		mutsum += p.kernel.mu(i) * T;
+	}
+	
+
+	return musum + phisum - (mutsum + phitsum);
+}
+
 
 struct mleparams {
 	double lambda = 0.0;
@@ -215,6 +273,7 @@ struct mleparams {
 	int clampWitt=0;
 };
 
+
 template<typename K,typename R>
 void mle(hp<multikernel<K>> &p, const std::vector<traj> &data, R &rand,
 		const mleparams &params) {
@@ -226,9 +285,12 @@ void mle(hp<multikernel<K>> &p, const std::vector<traj> &data, R &rand,
 	std::vector<R> rs;
 	for(int i=0;i<params.nthread;i++) rs.emplace_back(rand());
 
+	std::cout << "perfomring mle" << std::endl;
 	for(int step=0;step<params.nsteps;step++) {
+		std::cout << "step " << step << std::endl;
 		std::vector<mless> ss(params.nthread,p.kernel.baserates.size());
 		std::vector<std::future<void>> futs(params.nthread);
+		
 		for(int i=0;i<params.nthread;i++) {
 			auto &rr = rs[i];
 			auto &si = states[i];
@@ -257,6 +319,7 @@ void mle(hp<multikernel<K>> &p, const std::vector<traj> &data, R &rand,
 		}
 		mleopt(p.kernel,ss,1,params.minW,params.maxW,params.minbeta,params.lambda);
 		*/
+
 		std::cout << "end iteration " << step << std::endl;
 	}
 }
